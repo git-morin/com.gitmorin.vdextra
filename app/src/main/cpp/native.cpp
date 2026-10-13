@@ -13,10 +13,13 @@
 #include <unordered_map>
 #include <mutex>
 #include <atomic>
+#include <thread>
+#include <chrono>
 #include <dlfcn.h>
 #include <android/log.h>
 #include <jni.h>
 #include <math.h>
+#include <dobby.h>
 
 #define TAG "VDExtra"
 static void vlog(int prio,const char* fmt,...){
@@ -27,16 +30,10 @@ static void vlog(int prio,const char* fmt,...){
 #define LOGI(...) vlog(ANDROID_LOG_INFO,__VA_ARGS__)
 #define LOGE(...) vlog(ANDROID_LOG_ERROR,__VA_ARGS__)
 
-// LSPosed native hook API types
-typedef int (*HookFunType)(void *func, void *replace, void **backup);
-typedef int (*UnhookFunType)(void *func);
-typedef void (*NativeOnModuleLoaded)(const char *name, void *handle);
-typedef struct { uint32_t version; HookFunType hook_func; UnhookFunType unhook_func; } NativeAPIEntries;
-typedef NativeOnModuleLoaded (*NativeInit)(const NativeAPIEntries *entries);
-
-static HookFunType g_hook = nullptr;
+// Hooks go straight through our own vendored Dobby (see CMakeLists.txt), not the host
+// framework's hook_func - see the comment above pollForMono() for why.
 static int hook(void* target, void* replace, void** orig){
-  return g_hook ? g_hook(target, replace, orig) : -1;
+  return DobbyHook(target, replace, orig);
 }
 
 // Mono types (used as opaque pointers only)
@@ -759,9 +756,8 @@ static void resolveMono(void* mh){
   *(void**)&pDomainGet       =dlsym(mh,"mono_domain_get");
 }
 
-// LSPosed on_library_loaded callback
-static void on_library_loaded(const char* name, void* handle){
-  if(!name || !strstr(name,"libmonosgen-2.0.so")) return;
+// Install the ldstr/jit hooks once libmonosgen is loaded.
+static void setupMonoHooks(void* handle){
   resolveMono(handle);
   if(!pLdstrChecked){ LOGE("mono_ldstr_checked not found"); return; }
   if(hook((void*)pLdstrChecked,(void*)hookLdstr,(void**)&origLdstr)!=0) LOGE("ldstr hook failed");
@@ -774,17 +770,28 @@ static void on_library_loaded(const char* name, void* handle){
   LOGI("mono hooked");
 }
 
-// LSPosed native_init entry point
-extern "C" __attribute__((visibility("default"))) __attribute__((used))
-NativeOnModuleLoaded native_init(const NativeAPIEntries* entries){
-  if(!entries || !entries->hook_func){ LOGE("invalid native entries"); return nullptr; }
-  g_hook=entries->hook_func;
-  return on_library_loaded;
+// We find libmonosgen ourselves (polling dlopen/RTLD_NOLOAD, which is a no-op if it's
+// already loaded and never triggers a real load) instead of registering as a native_init.list
+// module for a load-notification callback. The latter makes the host framework (Vector)
+// install a global inline hook on the linker's own do_dlopen - on some framework/OS
+// combinations that hook corrupts unrelated register state inside the linker's genuinely
+// unmodified code, crashing the whole process on its very next (unrelated) dlopen call.
+// Never hooking do_dlopen at all - ours or the framework's - sidesteps that entirely.
+static std::atomic<bool> gPollStarted{false};
+static void pollForMono(){
+  for(int i=0;i<300;i++){
+    void* h=dlopen("libmonosgen-2.0.so", RTLD_NOW|RTLD_NOLOAD);
+    if(h){ setupMonoHooks(h); return; }
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  }
+  LOGE("libmonosgen-2.0.so never appeared after 60s, giving up");
 }
 
 // JNI exports
 extern "C" JNIEXPORT void JNICALL Java_com_gitmorin_vdextra_MainModule_nativeInit(JNIEnv* env, jobject thiz){
-  if(!g_hook) LOGE("native hook unavailable (native_init not called)");
+  bool expected=false;
+  if(!gPollStarted.compare_exchange_strong(expected,true)) return;
+  std::thread(pollForMono).detach();
 }
 extern "C" JNIEXPORT void JNICALL Java_com_gitmorin_vdextra_MainModule_nativeSetNoMusic(JNIEnv* env, jobject thiz, jboolean disable){
   gNoMusic.store(disable==JNI_TRUE);
