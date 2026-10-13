@@ -1,0 +1,66 @@
+plugins { id 'com.android.application' }
+
+// Signing: prefer env vars (CI secrets), fall back to root signing.properties (local, not committed)
+def signing = new Properties()
+def signingFile = rootProject.file('signing.properties')
+if (signingFile.exists()) { signingFile.withInputStream { signing.load(it) } }
+def signingValue = { String key -> System.getenv(key) ?: signing.getProperty(key) }
+def keystorePath = signingValue('KEYSTORE_FILE')
+
+android {
+    namespace 'com.gitmorin.vdextra'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.gitmorin.vdextra"
+        minSdk 29
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+        ndk { abiFilters "arm64-v8a" }
+    }
+
+    signingConfigs {
+        release {
+            if (keystorePath) {
+                storeFile file(keystorePath)
+                storePassword signingValue('KEYSTORE_PASSWORD')
+                keyAlias signingValue('KEY_ALIAS')
+                keyPassword signingValue('KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (keystorePath) signingConfig signingConfigs.release
+        }
+    }
+
+    externalNativeBuild {
+        cmake { path file('src/main/cpp/CMakeLists.txt') }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packaging {
+        jniLibs { useLegacyPackaging = false }
+        resources { excludes += ['META-INF/*.SF', 'META-INF/*.RSA', 'META-INF/*.DSA'] }
+    }
+
+    lint { abortOnError false }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'com.google.android.material:material:1.12.0'
+    compileOnly files('libs/libxposed-api.jar')
+    implementation files('libs/libxposed-service-full.jar')
+
+    compileOnly 'org.projectlombok:lombok:1.18.38'
+    annotationProcessor 'org.projectlombok:lombok:1.18.38'
+}
