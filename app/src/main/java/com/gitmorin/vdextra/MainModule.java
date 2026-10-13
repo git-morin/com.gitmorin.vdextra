@@ -12,10 +12,9 @@ import java.util.zip.ZipFile;
 import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam;
 
-/** Module entry point: loads the native hooks inside the VirtualDesktop.Android process and applies settings. */
+/** Module entry point: loads the native hooks inside the Virtual Desktop process and applies settings. */
 public class MainModule extends XposedModule {
     private static final String TAG = "VDExtra";
-    private static final String TARGET = "VirtualDesktop.Android";
 
     private static boolean sLoaded = false;
 
@@ -25,7 +24,7 @@ public class MainModule extends XposedModule {
 
     @Override
     public void onPackageLoaded(PackageLoadedParam param) {
-        if (!TARGET.equals(param.getPackageName()) || sLoaded) return;
+        if (!VdTarget.matches(param.getPackageName()) || sLoaded) return;
         sLoaded = true;
 
         String moduleApk = null;
