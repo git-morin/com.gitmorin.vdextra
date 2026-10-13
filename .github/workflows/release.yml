@@ -77,9 +77,9 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
+      # ubuntu-latest runners ship with the Android SDK/cmdline-tools preinstalled and on PATH;
+      # android-actions/setup-android@v3 fails here because it also tries to install the
+      # long-removed legacy 'tools' package, so we install only what's actually needed below.
       - name: Install SDK components
         run: |
           yes | sdkmanager --licenses > /dev/null
