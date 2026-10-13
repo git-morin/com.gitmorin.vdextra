@@ -32,7 +32,6 @@ import io.github.libxposed.service.XposedServiceHelper;
 
 public class MainActivity extends AppCompatActivity {
     private static final int REQ_IMPORT = 1001;
-    private static final String VD_PKG = "VirtualDesktop.Android";
 
     // The listener is a global static and must be a singleton, otherwise callbacks would reach a stale Activity after recreation
     private static volatile XposedService sService = null;
@@ -162,7 +161,7 @@ public class MainActivity extends AppCompatActivity {
 
         homeInfoSystem.removeAllViews();
         addInfo(homeInfoSystem, R.drawable.ic_module, getString(R.string.info_module_version), version(getPackageName()));
-        addInfo(homeInfoSystem, R.drawable.ic_app, getString(R.string.info_vd_version), version(VD_PKG));
+        addInfo(homeInfoSystem, R.drawable.ic_app, getString(R.string.info_vd_version), vdVersion());
 
         homeInfoDict.removeAllViews();
         addInfo(homeInfoDict, R.drawable.ic_dict, getString(R.string.info_dict_builtin), getString(R.string.dict_entries_format, bundledCount()));
@@ -293,7 +292,15 @@ public class MainActivity extends AppCompatActivity {
 
     private String version(String pkg) {
         try { return getPackageManager().getPackageInfo(pkg, 0).versionName; }
-        catch (Throwable t) { return VD_PKG.equals(pkg) ? getString(R.string.version_not_installed) : "—"; }
+        catch (Throwable t) { return "—"; }
+    }
+
+    private String vdVersion() {
+        for (String pkg : VdTarget.PACKAGES) {
+            try { return getPackageManager().getPackageInfo(pkg, 0).versionName; }
+            catch (Throwable ignored) {}
+        }
+        return getString(R.string.version_not_installed);
     }
 
     private int bundledCount() {
