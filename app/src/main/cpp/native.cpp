@@ -823,24 +823,19 @@ static void onGcEvent(void* prof,int event,uint32_t generation,int isSerial){
   doSetup();
 }
 
-// DIAGNOSTIC: ldstr/jit_exec/jit_init/run_main/object_new Dobby hook installation is
-// disabled here on purpose. Hypothesis under test: we attach within ~400ms of the library
-// becoming resident, likely racing Mono's own bootstrap (mono_jit_init et al.) rather than
-// arriving after it - Dobby-patching those functions' prologues while Mono's own init
-// thread is concurrently about to execute them could stall/corrupt that bootstrap outright
-// (same class of problem as the original do_dlopen crash: patching code concurrently with
-// its own in-flight execution), which would explain why mono_threads_inited never becomes
-// true and why every downstream signal (jit hooks, ldstr, profiler events) stayed dead - not
-// late, permanently broken. This build keeps only the soft profiler callback registrations
-// (which just store a function pointer, no code patching) to see if they start firing once
-// nothing is patching Mono's bootstrap-path functions early.
-#define VDEXTRA_DIAG_SKIP_EARLY_HOOKS 1
-
-// Install the ldstr/jit hooks (kept only as redundant safety nets), then register for the
-// profiler callbacks above, any of which runs doSetup() itself once it fires.
+// Attach is now driven synchronously from the Java-level System.loadLibrary hook (see
+// MainModule.hookLoadLibrary) catching libmonosgen becoming resident on Xamarin's own
+// bootstrap thread - before Xamarin's native init has had a chance to call jit_init et al.
+// on that same thread, unlike the old background-poll-thread approach which consistently
+// arrived within ~400ms of residency and raced Mono's own bootstrap (confirmed live: three
+// different foreign-thread-attach APIs and three profiler callback types all stayed
+// permanently dead no matter how long we waited, pointing at a release build with
+// classic-threading/profiler instrumentation compiled out rather than a timing issue -
+// nothing we could attach as, from any thread, after the fact, was ever going to work).
+// Installing these hooks here should now happen *before* Xamarin's thread gets to call any
+// of them for real, so they have an actual chance to fire legitimately this time.
 static void setupMonoHooks(void* handle){
   resolveMono(handle);
-#if !VDEXTRA_DIAG_SKIP_EARLY_HOOKS
   if(!pLdstrChecked){ LOGE("mono_ldstr_checked not found"); return; }
   if(hook((void*)pLdstrChecked,(void*)hookLdstr,(void**)&origLdstr)!=0) LOGE("ldstr hook failed");
   void* je=dlsym(handle,"mono_jit_exec");
@@ -851,9 +846,6 @@ static void setupMonoHooks(void* handle){
   if(rm) hook(rm,(void*)hookRunMain,(void**)&origRunMain);
   void* on=dlsym(handle,"mono_object_new");
   if(on && hook(on,(void*)hookObjNew,(void**)&origObjNew)!=0) LOGE("object_new hook failed");
-#else
-  LOGI("DIAG: skipping ldstr/jit/object_new hook installation");
-#endif
   LOGI("mono hooked");
   void* h=pProfilerCreate?pProfilerCreate(nullptr):nullptr;
   if(!h){ LOGE("mono_profiler_create failed/unresolved"); return; }
@@ -911,22 +903,34 @@ static LoadedLib findLoadedLib(const char* soname){
   fclose(f);
   return r;
 }
+// Single attach attempt: finds the resident instance, dlopens it by path, and verifies the
+// handle actually resolves into that instance's own address range before trusting it (see
+// LibInstance comment above). Idempotent and safe to call from multiple places/threads -
+// whichever call wins the race installs the hooks, every other call becomes a no-op.
+static std::atomic<bool> gAttached{false};
+static bool tryAttachMono(){
+  if(gAttached.load()) return true;
+  LoadedLib lib=findLoadedLib("libmonosgen-2.0.so");
+  if(lib.path.empty()) return false;
+  void* h=dlopen(lib.path.c_str(), RTLD_NOW);
+  if(!h){ LOGE("dlopen('%s') failed: %s",lib.path.c_str(),dlerror()); return false; }
+  void* probe=dlsym(h,"mono_get_root_domain");
+  const LibInstance* match=nullptr;
+  if(probe) for(auto& inst:lib.instances) if((uintptr_t)probe>=inst.base && (uintptr_t)probe<inst.end){ match=&inst; break; }
+  if(!match){
+    LOGE("dlopen('%s') returned a handle (probe=%p) matching none of the %zu resident instance(s) - refusing to hook a decoy copy",lib.path.c_str(),probe,lib.instances.size());
+    return false;
+  }
+  bool expected=false;
+  if(!gAttached.compare_exchange_strong(expected,true)) return true;  // another caller already won the race
+  LOGI("libmonosgen attached (base=%p, %zu resident instance(s))",(void*)match->base,lib.instances.size());
+  setupMonoHooks(h);
+  return true;
+}
 static std::atomic<bool> gPollStarted{false};
 static void pollForMono(){
   for(int i=0;; i++){
-    LoadedLib lib=findLoadedLib("libmonosgen-2.0.so");
-    if(!lib.path.empty()){
-      void* h=dlopen(lib.path.c_str(), RTLD_NOW);
-      if(h){
-        void* probe=dlsym(h,"mono_get_root_domain");
-        const LibInstance* match=nullptr;
-        if(probe) for(auto& inst:lib.instances) if((uintptr_t)probe>=inst.base && (uintptr_t)probe<inst.end){ match=&inst; break; }
-        if(match){ LOGI("libmonosgen attached (base=%p, %zu resident instance(s))",(void*)match->base,lib.instances.size()); setupMonoHooks(h); return; }
-        LOGE("dlopen('%s') returned a handle (probe=%p) matching none of the %zu resident instance(s) - refusing to hook a decoy copy",lib.path.c_str(),probe,lib.instances.size());
-      } else {
-        LOGE("dlopen('%s') failed: %s",lib.path.c_str(),dlerror());
-      }
-    }
+    if(tryAttachMono()) return;
     if(i>0 && i%300==0) LOGI("still waiting for libmonosgen-2.0.so (%ds elapsed)",i/5);
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
   }
@@ -937,6 +941,13 @@ extern "C" JNIEXPORT void JNICALL Java_com_gitmorin_vdextra_MainModule_nativeIni
   bool expected=false;
   if(!gPollStarted.compare_exchange_strong(expected,true)) return;
   std::thread(pollForMono).detach();
+}
+// Called synchronously from the Java-level System.loadLibrary hook (MainModule.hookLoadLibrary),
+// right after each library load returns - catches libmonosgen becoming resident on Xamarin's
+// own bootstrap thread, before its native init has had a chance to run on that same thread,
+// instead of racing it from our own background poll thread (see setupMonoHooks' comment).
+extern "C" JNIEXPORT jboolean JNICALL Java_com_gitmorin_vdextra_MainModule_nativeCheckMono(JNIEnv* env, jobject thiz){
+  return tryAttachMono()?JNI_TRUE:JNI_FALSE;
 }
 extern "C" JNIEXPORT void JNICALL Java_com_gitmorin_vdextra_MainModule_nativeSetNoMusic(JNIEnv* env, jobject thiz, jboolean disable){
   gNoMusic.store(disable==JNI_TRUE);
