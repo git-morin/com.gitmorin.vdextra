@@ -758,14 +758,14 @@ static void resolveMono(void* mh){
   *(void**)&pThreadAttach    =dlsym(mh,"mono_thread_attach");
 }
 
-// Install the ldstr/jit hooks once libmonosgen is loaded, then run doSetup() immediately.
-// The jit_init/jit_exec/run_main/ldstr-triggered calls to doSetup() below are now just
-// redundant safety nets, not the primary path: those only fire once, very early in the
-// process (jit_init et al.) or depend on a literal never having been interned yet (ldstr) -
-// both routinely already happened by the time our poll-based attach completes (unlike the
-// old native_init.list design, which attached synchronously before the app ran any code at
-// all). By the time we get here Mono is already resident and VD is rendering UI, so corlib
-// and every class doSetup() needs are already loaded - there's nothing left to wait for.
+// Install the ldstr/jit hooks once libmonosgen is loaded, then wait for the root domain and
+// run doSetup() ourselves. The jit_init/jit_exec/run_main/ldstr-triggered calls to doSetup()
+// below are now just redundant safety nets, not the primary path: those depend on hooks that
+// either fire once very early (jit_init et al. - and on a fast attach, as observed live,
+// mono_get_root_domain() can still be null at this point, meaning the real mono_jit_init call
+// hasn't happened *yet* either, so our hook on it should still fire) or on a literal that's
+// never interned again after startup (ldstr, unreliable on an AOT build). Rather than trust
+// either path, we just wait for the domain to exist ourselves.
 //
 // doSetupImpl() is documented as managed-thread-only: mono_runtime_invoke (used by getClass's
 // reflection-based lookup) relies on per-thread state Mono only populates for threads it
@@ -783,9 +783,16 @@ static void setupMonoHooks(void* handle){
   void* rm=dlsym(handle,"mono_runtime_run_main");
   if(rm) hook(rm,(void*)hookRunMain,(void**)&origRunMain);
   LOGI("mono hooked");
-  MonoDomain* d=getDomain();
-  if(d && pThreadAttach){ pThreadAttach(d); LOGI("attached polling thread to domain=%p",(void*)d); }
-  else LOGE("could not attach polling thread (domain=%p pThreadAttach=%p)",(void*)d,(void*)pThreadAttach);
+  MonoDomain* d=nullptr;
+  for(int i=0;; i++){
+    if(gSetup.load()) return;                 // one of the real hooks already finished setup
+    d=getDomain();
+    if(d) break;
+    if(i>0 && i%300==0) LOGI("still waiting for the Mono root domain (%ds elapsed)",i/5);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  }
+  if(pThreadAttach){ pThreadAttach(d); LOGI("attached polling thread to domain=%p",(void*)d); }
+  else LOGE("mono_thread_attach not resolved");
   doSetup();
 }
 
