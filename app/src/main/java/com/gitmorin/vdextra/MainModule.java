@@ -46,8 +46,9 @@ public class MainModule extends XposedModule {
         hookRuntimeInit(param.getDefaultClassLoader());
 
         try {
+            String lang = readString(PrefKeys.UI_LANGUAGE, Languages.DEFAULT);
             boolean useImported = readBool(PrefKeys.USE_IMPORTED_DICT, true);
-            Map<String, String> dict = new LinkedHashMap<>(loadBuiltinDict(moduleApk));
+            Map<String, String> dict = new LinkedHashMap<>(loadBuiltinDict(moduleApk, lang));
             if (useImported) dict.putAll(loadImportedDict());
             String[] ks = new String[dict.size()], vs = new String[dict.size()];
             int i = 0;
@@ -59,7 +60,8 @@ public class MainModule extends XposedModule {
             nativeSetQuality(readBool(PrefKeys.DISABLE_QUALITY_SOUND, false), readInt(PrefKeys.QUALITY_MASK, 0x7F));
             nativeSetBitrate(readBool(PrefKeys.BITRATE_EXTEND, false), readBool(PrefKeys.BITRATE_UNLOCK, false), readFloat(PrefKeys.BITRATE_SCALE, 2.0f));
             nativeSetForceLan(readBool(PrefKeys.FORCE_LAN, true));
-            log(Log.INFO, TAG, "dict=" + dict.size() + " imported=" + useImported);
+            log(Log.INFO, TAG, "lang=" + (Languages.isOff(lang) ? "off" : lang)
+                    + " dict=" + dict.size() + " imported=" + useImported);
         } catch (Throwable t) {
             log(Log.ERROR, TAG, "init failed", t);
         }
@@ -97,15 +99,24 @@ public class MainModule extends XposedModule {
         }
     }
 
-    private Map<String, String> loadBuiltinDict(String moduleApk) {
+    /**
+     * Loads the bundled dictionary for {@code lang}, or nothing at all when the user picked
+     * English - which is simply the absence of any translation, since every string the dictionary
+     * doesn't contain passes through untouched.
+     */
+    private Map<String, String> loadBuiltinDict(String moduleApk, String lang) {
         Map<String, String> m = new LinkedHashMap<>();
-        if (moduleApk == null) return m;
+        if (moduleApk == null || Languages.isOff(lang)) return m;
         try (ZipFile zf = new ZipFile(moduleApk)) {
-            ZipEntry e = zf.getEntry("assets/zh_ui_dict.json");
-            if (e != null) {
-                try (var in = zf.getInputStream(e)) {
-                    DictJson.parseInto(new String(DictJson.readAll(in), StandardCharsets.UTF_8), m);
-                }
+            ZipEntry e = zf.getEntry(Languages.apkEntry(lang));
+            if (e == null) {
+                // A language that was removed in an update, or a hand-edited pref: fall back to
+                // English rather than failing the whole init.
+                log(Log.WARN, TAG, "no bundled dictionary for language " + lang);
+                return m;
+            }
+            try (var in = zf.getInputStream(e)) {
+                DictJson.parseInto(new String(DictJson.readAll(in), StandardCharsets.UTF_8), m);
             }
         } catch (Throwable t) {
             log(Log.WARN, TAG, "builtin dict failed", t);
@@ -122,6 +133,13 @@ public class MainModule extends XposedModule {
             log(Log.WARN, TAG, "imported dict failed", t);
         }
         return m;
+    }
+
+    private String readString(String key, String def) {
+        try {
+            String v = getRemotePreferences(PrefKeys.NAME).getString(key, def);
+            return v != null ? v : def;
+        } catch (Throwable t) { return def; }
     }
 
     private boolean readBool(String key, boolean def) {
