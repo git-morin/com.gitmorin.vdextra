@@ -281,10 +281,16 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
+    /**
+     * The selected language, or - while the user has never picked one - whatever the system's
+     * own languages resolve to. An explicit choice of English is stored as {@link Languages#OFF}
+     * and so stays distinguishable from "not chosen yet", which is what makes that fallback
+     * stop applying the moment the user picks anything.
+     */
     private String currentLanguage() {
         String v = getSharedPreferences(PrefKeys.NAME, MODE_PRIVATE)
-                .getString(PrefKeys.UI_LANGUAGE, Languages.DEFAULT);
-        return v != null ? v : Languages.DEFAULT;
+                .getString(PrefKeys.UI_LANGUAGE, null);
+        return v != null ? v : Languages.systemDefault(Languages.available(getAssets()));
     }
 
     private String languageLabel(String tag) {

@@ -46,7 +46,12 @@ public class MainModule extends XposedModule {
         hookRuntimeInit(param.getDefaultClassLoader());
 
         try {
-            String lang = readString(PrefKeys.UI_LANGUAGE, Languages.DEFAULT);
+            // No stored choice means the user has never picked one, so follow the system's own
+            // languages. An explicit choice of English is stored as an empty tag, which is why
+            // this distinguishes "unset" from "set to English" rather than defaulting on blank.
+            String lang = readString(PrefKeys.UI_LANGUAGE, null);
+            boolean fromSystem = lang == null;
+            if (fromSystem) lang = Languages.systemDefault(Languages.available(moduleApk));
             Map<String, String> dict = loadBuiltinDict(moduleApk, lang);
             String[] ks = new String[dict.size()], vs = new String[dict.size()];
             int i = 0;
@@ -58,7 +63,8 @@ public class MainModule extends XposedModule {
             nativeSetQuality(readBool(PrefKeys.DISABLE_QUALITY_SOUND, false), readInt(PrefKeys.QUALITY_MASK, 0x7F));
             nativeSetBitrate(readBool(PrefKeys.BITRATE_EXTEND, false), readBool(PrefKeys.BITRATE_UNLOCK, false), readFloat(PrefKeys.BITRATE_SCALE, 2.0f));
             nativeSetForceLan(readBool(PrefKeys.FORCE_LAN, true));
-            log(Log.INFO, TAG, "lang=" + (Languages.isOff(lang) ? "off" : lang) + " dict=" + dict.size());
+            log(Log.INFO, TAG, "lang=" + (Languages.isOff(lang) ? "off" : lang)
+                    + (fromSystem ? " (system)" : "") + " dict=" + dict.size());
         } catch (Throwable t) {
             log(Log.ERROR, TAG, "init failed", t);
         }
