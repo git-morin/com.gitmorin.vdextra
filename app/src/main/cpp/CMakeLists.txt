@@ -4,13 +4,12 @@ project(vdextra LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Vendored (not a hook_func dependency on the host Xposed framework - see native.cpp
-# for why): https://github.com/JingMatrix/Dobby, Apache-2.0.
+# Vendored rather than depending on the host Xposed framework's hook_func - see
+# nim/vdextra.nim for why. https://github.com/JingMatrix/Dobby, Apache-2.0.
 set(DOBBY_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
 set(DOBBY_BUILD_TEST OFF CACHE BOOL "" FORCE)
 add_subdirectory(dobby)
 
-# --- Nim ---------------------------------------------------------------------------------
 # Nim compiles to C rather than straight to an object file, so it slots into this build as a
 # code generator: it emits .c into a cache directory and the NDK toolchain compiles those like
 # any other source. That keeps one compiler (the NDK's clang) responsible for the actual ABI,
@@ -72,12 +71,12 @@ endif()
 list(LENGTH NIM_GENERATED_C NIM_GENERATED_COUNT)
 message(STATUS "nim: generated ${NIM_GENERATED_COUNT} C source(s) for arm64 in ${NIM_CACHE}")
 
-# -----------------------------------------------------------------------------------------
-
-add_library(vdextra SHARED native.cpp init.c ${NIM_GENERATED_C})
+add_library(vdextra SHARED init.c ${NIM_GENERATED_C})
 target_include_directories(vdextra PRIVATE ${NIM_LIB_DIR} ${NIM_SRC_DIR})
 target_compile_options(vdextra PRIVATE -fPIC -O2)
-target_compile_options(vdextra PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-std=c++17>)
+# Nothing in this target is C++ any more, but Dobby is, so link through the C++ driver or the
+# C++ runtime it needs is left out.
+set_target_properties(vdextra PROPERTIES LINKER_LANGUAGE CXX)
 # Flags Nim passes to its own C compiler: its generated code is not warning-clean by design,
 # relies on this aliasing rule, and needs -pthread because it is built with --threads:on.
 set_source_files_properties(${NIM_GENERATED_C} PROPERTIES
