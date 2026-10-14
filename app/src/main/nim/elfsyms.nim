@@ -1,25 +1,3 @@
-## Resolving exports out of a library that is already mapped into this process, without dlopen.
-##
-## dlopen() cannot reach libmonosgen-2.0.so from where this module is injected. bionic's
-## already-loaded-by-realpath check (find_loaded_library_by_realpath) is scoped to the *calling*
-## linker namespace, and our .so lives outside Virtual Desktop's per-APK ClassLoader namespace
-## while libmonosgen is one of VD's private libs inside it. dlopen() of its path therefore never
-## finds the running instance to reuse - it maps a second, independent copy of the runtime whose
-## mono_init() has never run, so every accessor in that copy reads zeroed globals and the whole
-## hooking layer silently does nothing. (Statically confirmed those accessors are real code over
-## real globals, not compiled-out ABI stubs: mono_get_corlib is
-## `adrp x8, ...; ldr x0, [x8, #0x998]; ret`.) Worse, dlopen()ing a runtime copy also runs its
-## DT_INIT_ARRAY constructors.
-##
-## Every namespace-scoped linker lookup is equally blind to it - RTLD_NOLOAD never sees it, nor
-## does dl_iterate_phdr. /proc/self/maps is the one view of the process that ignores namespaces,
-## so it stays the way in: take the resident base from there and walk the mapped image's own ELF
-## structures (program headers -> PT_DYNAMIC -> DT_SYMTAB/DT_STRTAB/DT_HASH).
-##
-## This works without touching the file on disk because libmonosgen's .dynsym, .dynstr and
-## .hash all live inside its first PT_LOAD, so they are genuinely mapped; and because its lowest
-## PT_LOAD p_vaddr is 0, the load bias is just the base address.
-
 import std/strutils
 
 const
@@ -57,7 +35,6 @@ type
     value, size: uint64
 
   ElfSyms* = object
-    ## A resolved view of one mapped image. `ok` is false for anything that did not parse.
     bias*: uint64
     strtab: ptr UncheckedArray[char]
     symtab: pointer
@@ -65,15 +42,11 @@ type
     syment: int
 
   LibInstance* = object
-    ## One load of a library: a tight [base, limit) range, not a span over several loads.
     base*, limit*: uint64
 
 proc ok*(s: ElfSyms): bool = s.strtab != nil and s.symtab != nil and s.count > 0
 
 proc sym*(s: ElfSyms, name: cstring): pointer =
-  ## Linear scan of .dynsym. A few dozen lookups over ~1500 symbols at startup only, so the
-  ## hash tables buy nothing worth the extra moving parts. Takes a cstring so that calls from
-  ## the C side cost no allocation.
   if not s.ok: return nil
   for i in 0 ..< s.count:
     let e = cast[ptr Elf64Sym](cast[uint64](s.symtab) + uint64(i * s.syment))
@@ -83,15 +56,15 @@ proc sym*(s: ElfSyms, name: cstring): pointer =
   nil
 
 proc elfSymsAt*(base: uint64): ElfSyms =
-  ## Parses the ELF image mapped at `base`. Returns a non-ok result rather than raising, since
-  ## `base` comes from /proc/self/maps and may be anything.
+  ## `base` comes from /proc/self/maps and may be anything, so every failure answers with a
+  ## non-ok result rather than raising.
   let eh = cast[ptr Elf64Ehdr](base)
   if eh.ident[0] != 0x7f or eh.ident[1] != byte('E') or
      eh.ident[2] != byte('L') or eh.ident[3] != byte('F'):
     return
 
-  var dynVa, minVa: uint64 = 0
-  minVa = high(uint64)
+  var dynVa = 0'u64
+  var minVa = high(uint64)
   for i in 0 ..< int(eh.phnum):
     let ph = cast[ptr Elf64Phdr](base + eh.phoff + uint64(i * int(eh.phentsize)))
     if ph.ptype == PT_DYNAMIC: dynVa = ph.vaddr
@@ -99,8 +72,8 @@ proc elfSymsAt*(base: uint64): ElfSyms =
   if dynVa == 0 or minVa == high(uint64): return
 
   let bias = base - minVa
-  # bionic leaves DT_* pointer entries as link-time vaddrs on some paths and pre-relocates them
-  # on others; a value already at or above the load bias is clearly the latter.
+  # bionic leaves DT_* pointer entries as link-time vaddrs on some paths and pre-relocates
+  # them on others; a value already at or above the load bias is clearly the latter.
   template fix(v: uint64): uint64 = (if v >= bias: v else: bias + v)
 
   var
@@ -121,8 +94,9 @@ proc elfSymsAt*(base: uint64): ElfSyms =
     else: discard
     d = cast[ptr Elf64Dyn](cast[uint64](d) + uint64(sizeof(Elf64Dyn)))
 
-  # Only needed for an image linked --hash-style=gnu alone (libmonosgen carries both): the GNU
-  # table stores no symbol count, so derive it from the highest bucket's chain terminator.
+  # The GNU table stores no symbol count, so derive it from the highest bucket's chain
+  # terminator. Only reachable for an image linked --hash-style=gnu alone; libmonosgen
+  # carries both.
   if count == 0 and gnu != nil:
     let
       nbucket = gnu[0]
@@ -145,13 +119,10 @@ proc elfSymsAt*(base: uint64): ElfSyms =
   ElfSyms(bias: bias, strtab: strtab, symtab: symtab, count: count, syment: syment)
 
 proc residentInstances*(soname: string): seq[LibInstance] =
-  ## Every mapped load of `soname`, each as its own tight range.
-  ##
-  ## A device can have more than one copy of a soname mapped at once (a Quest-customised zygote
-  ## preloading common VR-runtime libs alongside the app's private instance, say), so a single
-  ## [min base, max limit) over all matching lines would wrongly treat the gap between two
-  ## unrelated images as valid. A file offset of 0 marks the start of a fresh load; later
-  ## segments of the same load only extend it.
+  ## A device can have several copies of one soname mapped at once (a Quest-customised zygote
+  ## preloading VR-runtime libs alongside the app's private instance), so each load is tracked
+  ## as its own tight range - one span over all matching lines would treat the gap between two
+  ## unrelated images as valid. File offset 0 starts a fresh load; later segments extend it.
   result = @[]
   try:
     for line in lines("/proc/self/maps"):
@@ -163,23 +134,31 @@ proc residentInstances*(soname: string): seq[LibInstance] =
       let
         b = parseHexInt(line[0 ..< dash]).uint64
         e = parseHexInt(line[dash + 1 ..< space]).uint64
-      # fields: range perms offset ...
-      let fields = line[space + 1 .. ^1].splitWhitespace()
+        fields = line[space + 1 .. ^1].splitWhitespace()
       if fields.len < 2: continue
-      let offset = parseHexInt(fields[1]).uint64
-      if offset == 0:
+      if parseHexInt(fields[1]).uint64 == 0:
         result.add LibInstance(base: b, limit: e)
       elif result.len > 0 and e > result[^1].limit:
-        result[^1].limit = e          # later segment of the same load (rodata/data)
+        result[^1].limit = e
   except CatchableError:
     discard
 
-proc findLiveImage*(soname: string, readyProbe: proc(s: ElfSyms): bool): ElfSyms =
-  ## The mapped instance of `soname` that `readyProbe` accepts, or a non-ok result.
+proc findLiveImage*(soname: string, readyProbe: proc(s: ElfSyms): bool {.nimcall, gcsafe.}): ElfSyms =
+  ## dlopen cannot reach a library in another linker namespace. bionic's already-loaded check
+  ## (find_loaded_library_by_realpath) is scoped to the *calling* namespace, and this module is
+  ## injected outside Virtual Desktop's per-APK ClassLoader namespace while libmonosgen is one
+  ## of VD's private libs inside it - so dlopen of its path never finds the running instance to
+  ## reuse, and instead maps a second copy whose mono_init() has never run. Every accessor in
+  ## that copy then reads zeroed globals, which looks exactly like a runtime with its
+  ## introspection compiled out, and the whole hooking layer silently does nothing. dlopen of a
+  ## runtime copy also runs its DT_INIT_ARRAY constructors.
   ##
-  ## Asking the image itself whether it is ready is what makes this safe: it is both the
-  ## "is the runtime up yet?" test and what tells a live runtime from a never-initialised copy,
-  ## so there is no timing to guess at and no decoy to fall for.
+  ## RTLD_NOLOAD and dl_iterate_phdr are namespace-scoped too, so /proc/self/maps is the only
+  ## view left. Walking the mapped image needs no file access because libmonosgen's .dynsym,
+  ## .dynstr and .hash all sit inside its first PT_LOAD.
+  ##
+  ## Asking the image itself whether it is ready is both the "is the runtime up?" test and what
+  ## separates the live runtime from a never-initialised copy, so there is no timing to guess.
   for inst in residentInstances(soname):
     let s = elfSymsAt(inst.base)
     if not s.ok: continue
