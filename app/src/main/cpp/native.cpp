@@ -66,6 +66,7 @@ static MonoObject* (*pGchandleGet)(MonoGCHandle)=nullptr;
 static void        (*pGchandleFree)(MonoGCHandle)=nullptr;
 static MonoDomain* (*pGetRootDomain)(void)=nullptr;
 static MonoDomain* (*pDomainGet)(void)=nullptr;
+static MonoDomain* (*pJitThreadAttach)(MonoDomain*)=nullptr;
 
 // Global state
 static MonoDomain* gDomain=nullptr;
@@ -771,22 +772,28 @@ static void resolveMono(void* mh){
   *(void**)&pGchandleFree    =dlsym(mh,"mono_gchandle_free");
   *(void**)&pGetRootDomain   =dlsym(mh,"mono_get_root_domain");
   *(void**)&pDomainGet       =dlsym(mh,"mono_domain_get");
+  *(void**)&pJitThreadAttach =dlsym(mh,"mono_jit_thread_attach");
 }
 
 // This build is MonoVM-hosted (modern .NET-for-Android, confirmed via exported monovm_*
-// symbols), not the classic Xamarin.Android AppDomain model mono_get_root_domain assumes -
-// it stays resolvable (ABI compat) but never actually returns a domain here, observed live.
-// mono_domain_foreach() walks Mono's own global domain registry instead, which works
-// regardless of which embedding/hosting model created the (single, in MonoVM) domain.
-// mono_domain_foreach() and friends assert/abort (SIGABRT, confirmed live via
-// mono_threads_enter_gc_unsafe_region_internal) when called from a thread Mono has never
-// registered - which rules out discovering the domain from our own background std::thread
-// by calling *any* Mono API at all before that thread is registered. There's no safe
-// getter to break this chicken-and-egg from the outside, so doSetup() has to stay fully on
-// the managed-thread call sites below (ldstr/jit_init/jit_exec/run_main) - instrumented so
-// we can see directly, from real device logs, which of them actually fires.
+// symbols) and fully AOT-compiled (every assembly ships as its own libaot-*.dll.so) - live
+// testing showed ldstr/jit_init/jit_exec/run_main/object_new never fire even once after
+// attach, despite minutes of real UI use: AOT-compiled methods branch directly to each
+// other's native code, so hot application logic essentially never calls back into any of
+// Mono's generic/slow-path exported runtime functions. There is no reliable "tick" here -
+// doSetup() has to run immediately once we attach.
 //
-// Install the ldstr/jit hooks once libmonosgen is loaded.
+// Getting a MonoDomain* safely from our own background std::thread (one Mono never
+// registered) is the remaining obstacle: mono_get_root_domain() stays resolvable for ABI
+// compat but never actually returns a domain in this build, and mono_domain_foreach()
+// asserts/aborts (SIGABRT via mono_threads_enter_gc_unsafe_region_internal, confirmed live -
+// crash-looped VD 3x) when called pre-attachment. mono_jit_thread_attach(domain) is Mono's
+// own standard embedding entrypoint for exactly this situation - attaching a natively
+// created thread that doesn't have a domain handle yet - and is documented to resolve a
+// domain itself when passed NULL, which every embedder (Unity, Xamarin itself) relies on.
+//
+// Install the ldstr/jit hooks (kept only as redundant safety nets), then attach via
+// mono_jit_thread_attach and run doSetup() right away.
 static void setupMonoHooks(void* handle){
   resolveMono(handle);
   if(!pLdstrChecked){ LOGE("mono_ldstr_checked not found"); return; }
@@ -800,6 +807,12 @@ static void setupMonoHooks(void* handle){
   void* on=dlsym(handle,"mono_object_new");
   if(on && hook(on,(void*)hookObjNew,(void**)&origObjNew)!=0) LOGE("object_new hook failed");
   LOGI("mono hooked");
+  if(pJitThreadAttach){
+    MonoDomain* d=pJitThreadAttach(nullptr);
+    LOGI("mono_jit_thread_attach(NULL) -> domain=%p",(void*)d);
+    if(d) gDomain=d;
+  } else LOGE("mono_jit_thread_attach not resolved");
+  doSetup();
 }
 
 // We find libmonosgen ourselves (polling for it, which never triggers a real load) instead
