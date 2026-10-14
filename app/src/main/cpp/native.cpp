@@ -67,6 +67,7 @@ static void        (*pGchandleFree)(MonoGCHandle)=nullptr;
 static MonoDomain* (*pGetRootDomain)(void)=nullptr;
 static MonoDomain* (*pDomainGet)(void)=nullptr;
 static MonoDomain* (*pJitThreadAttach)(MonoDomain*)=nullptr;
+static void        (*pAttachToolsThread)(void)=nullptr;
 
 // Global state
 static MonoDomain* gDomain=nullptr;
@@ -773,6 +774,7 @@ static void resolveMono(void* mh){
   *(void**)&pGetRootDomain   =dlsym(mh,"mono_get_root_domain");
   *(void**)&pDomainGet       =dlsym(mh,"mono_domain_get");
   *(void**)&pJitThreadAttach =dlsym(mh,"mono_jit_thread_attach");
+  *(void**)&pAttachToolsThread=dlsym(mh,"mono_threads_attach_tools_thread");
 }
 
 // This build is MonoVM-hosted (modern .NET-for-Android, confirmed via exported monovm_*
@@ -785,15 +787,20 @@ static void resolveMono(void* mh){
 //
 // Getting a MonoDomain* safely from our own background std::thread (one Mono never
 // registered) is the remaining obstacle: mono_get_root_domain() stays resolvable for ABI
-// compat but never actually returns a domain in this build, and mono_domain_foreach()
-// asserts/aborts (SIGABRT via mono_threads_enter_gc_unsafe_region_internal, confirmed live -
-// crash-looped VD 3x) when called pre-attachment. mono_jit_thread_attach(domain) is Mono's
-// own standard embedding entrypoint for exactly this situation - attaching a natively
-// created thread that doesn't have a domain handle yet - and is documented to resolve a
-// domain itself when passed NULL, which every embedder (Unity, Xamarin itself) relies on.
+// compat but never actually returns a domain in this build; mono_domain_foreach() asserts/
+// aborts (SIGABRT via mono_threads_enter_gc_unsafe_region_internal, confirmed live -
+// crash-looped VD 3x) when called pre-attachment; and mono_jit_thread_attach(NULL) does NOT
+// auto-resolve a default domain here either - confirmed live via its own abort message,
+// "Assertion ... condition `domain' not met" in mini-runtime.c, so it needs a real domain
+// pointer we don't have, same chicken-and-egg problem one level down.
 //
-// Install the ldstr/jit hooks (kept only as redundant safety nets), then attach via
-// mono_jit_thread_attach and run doSetup() right away.
+// mono_threads_attach_tools_thread() is different: it's Mono's own dedicated API for
+// exactly this situation - an external native thread (profiler/debugger/embedder) that
+// needs limited runtime access without being a real managed thread - and takes no domain
+// argument at all, sidestepping the whole discovery problem.
+//
+// Install the ldstr/jit hooks (kept only as redundant safety nets), then attach as a tools
+// thread and run doSetup() right away.
 static void setupMonoHooks(void* handle){
   resolveMono(handle);
   if(!pLdstrChecked){ LOGE("mono_ldstr_checked not found"); return; }
@@ -807,11 +814,13 @@ static void setupMonoHooks(void* handle){
   void* on=dlsym(handle,"mono_object_new");
   if(on && hook(on,(void*)hookObjNew,(void**)&origObjNew)!=0) LOGE("object_new hook failed");
   LOGI("mono hooked");
-  if(pJitThreadAttach){
-    MonoDomain* d=pJitThreadAttach(nullptr);
-    LOGI("mono_jit_thread_attach(NULL) -> domain=%p",(void*)d);
+  if(pAttachToolsThread){
+    pAttachToolsThread();
+    MonoDomain* d=pGetRootDomain?pGetRootDomain():nullptr;
+    if(!d && pDomainGet) d=pDomainGet();
+    LOGI("attached as tools thread, domain=%p",(void*)d);
     if(d) gDomain=d;
-  } else LOGE("mono_jit_thread_attach not resolved");
+  } else LOGE("mono_threads_attach_tools_thread not resolved");
   doSetup();
 }
 
