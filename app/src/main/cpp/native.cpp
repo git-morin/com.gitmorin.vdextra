@@ -970,12 +970,27 @@ extern "C" JNIEXPORT jboolean JNICALL Java_com_gitmorin_vdextra_MainModule_nativ
   // ahead of the linker - a brief bounded retry here (blocking this one JNI call, not spawning
   // anything) is a better fit than falling all the way back to the 20s poll-thread safety net.
   tInSetupFromJavaHook=true;
+  bool attached=false;
   for(int i=0;i<20;i++){
-    if(tryAttachMono()) { tInSetupFromJavaHook=false; return JNI_TRUE; }
+    if(tryAttachMono()){ attached=true; break; }
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
+  // setupMonoHooks() already tried doSetup() once as part of attaching, but corlib/classes
+  // can still not be ready yet even on this thread (confirmed live: it hit doSetupImpl's
+  // early "!gCorlib" return with zero further log output) - initInternal() returning to Java
+  // apparently doesn't mean Mono's real native bootstrap has finished, just that Xamarin's
+  // own Java-side call into it has returned (possibly kicking off the actual init
+  // asynchronously on its own internal thread). Keep retrying from here, still safely on
+  // this same legitimate, non-foreign thread.
+  if(attached && !gSetup.load()){
+    for(int i=0;i<50 && !gSetup.load();i++){
+      doSetup();
+      if(!gSetup.load()) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    LOGI("doSetup retry loop finished, gSetup=%d",(int)gSetup.load());
+  }
   tInSetupFromJavaHook=false;
-  return JNI_FALSE;
+  return attached?JNI_TRUE:JNI_FALSE;
 }
 extern "C" JNIEXPORT void JNICALL Java_com_gitmorin_vdextra_MainModule_nativeSetNoMusic(JNIEnv* env, jobject thiz, jboolean disable){
   gNoMusic.store(disable==JNI_TRUE);
