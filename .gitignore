@@ -6,6 +6,9 @@ app/.cxx/
 .externalNativeBuild/
 captures/
 
+# Nim codegen output (CMake regenerates it into the build dir)
+nimcache/
+
 # Local config & signing (not committed)
 local.properties
 signing.properties
