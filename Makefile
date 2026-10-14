@@ -66,10 +66,14 @@ fmt:
 
 lint: check fmt-check
 
+# A push to main or dev already triggers the workflow, so dispatching as well would run
+# it twice; other branches need the dispatch because they match no push trigger.
 build:
 > git push origin $(BRANCH)
-> gh workflow run release.yml --ref $(BRANCH)
-> @sleep 6
+> @if [ "$(BRANCH)" != "main" ] && [ "$(BRANCH)" != "dev" ]; then \
+>   gh workflow run release.yml --ref $(BRANCH); \
+> fi
+> @sleep 8
 > @id=$$(gh run list --branch $(BRANCH) --limit 1 --json databaseId -q '.[0].databaseId'); \
 > echo "watching run $$id"; gh run watch "$$id" --exit-status
 
