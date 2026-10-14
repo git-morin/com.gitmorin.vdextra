@@ -92,6 +92,18 @@ jobs:
           yes | sdkmanager --licenses > /dev/null
           sdkmanager --install "platforms;android-34" "build-tools;34.0.0" "ndk;27.0.12077973" "cmake;3.22.1"
 
+      # Part of the native code is Nim, which CMake invokes as a code generator (it emits C that
+      # the NDK's clang then compiles - see src/main/cpp/CMakeLists.txt). Pinned so a Nim release
+      # cannot silently change codegen under us.
+      - name: Set up Nim
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: '2.2.12'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Show Nim version
+        run: nim --version | head -1
+
       - name: Decode signing keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
