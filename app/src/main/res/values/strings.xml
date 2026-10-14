@@ -41,6 +41,10 @@
     <string name="update_needs_permission">Allow VDExtra to install apps, then try again</string>
     <string name="update_restart_hint">Updated. Force-stop and restart Virtual Desktop to load it.</string>
 
+    <string name="notif_channel_updates">Update available</string>
+    <string name="notif_update_title">VDExtra update available</string>
+    <string name="notif_update_text_format">%1$s is ready to install</string>
+
     <string name="section_sound">Sound</string>
     <string name="sound_no_music_title">Disable background music</string>
     <string name="sound_no_music_support">Stop auto-playing music while not connected</string>

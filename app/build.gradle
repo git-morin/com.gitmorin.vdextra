@@ -44,6 +44,12 @@ android {
         }
     }
 
+    // BuildConfig.APPLICATION_ID is how the module, running inside Virtual Desktop's process,
+    // addresses its own package - getPackageName() there returns Virtual Desktop's.
+    buildFeatures {
+        buildConfig true
+    }
+
     externalNativeBuild {
         cmake { path file('src/main/cpp/CMakeLists.txt') }
     }

@@ -41,6 +41,10 @@
     <string name="update_needs_permission">请允许 VDExtra 安装应用，然后重试</string>
     <string name="update_restart_hint">已更新。请强制停止并重启 Virtual Desktop 生效。</string>
 
+    <string name="notif_channel_updates">有可用更新</string>
+    <string name="notif_update_title">VDExtra 有可用更新</string>
+    <string name="notif_update_text_format">%1$s 已可安装</string>
+
     <string name="section_sound">声音</string>
     <string name="sound_no_music_title">禁用背景音乐</string>
     <string name="sound_no_music_support">未连接时不再自动播放</string>

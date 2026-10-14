@@ -1,5 +1,7 @@
 package com.gitmorin.vdextra;
 
+import android.content.Context;
+import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.util.Log;
 
@@ -63,6 +65,7 @@ public class MainModule extends XposedModule {
             nativeSetQuality(readBool(PrefKeys.DISABLE_QUALITY_SOUND, false), readInt(PrefKeys.QUALITY_MASK, 0x7F));
             nativeSetBitrate(readBool(PrefKeys.BITRATE_EXTEND, false), readBool(PrefKeys.BITRATE_UNLOCK, false), readFloat(PrefKeys.BITRATE_SCALE, 2.0f));
             nativeSetForceLan(readBool(PrefKeys.FORCE_LAN, true));
+            requestUpdateCheck();
             log(Log.INFO, TAG, "lang=" + (Languages.isOff(lang) ? "off" : lang)
                     + (fromSystem ? " (system)" : "") + " dict=" + dict.size());
         } catch (Throwable t) {
@@ -100,6 +103,38 @@ public class MainModule extends XposedModule {
         } catch (Throwable t) {
             log(Log.ERROR, TAG, "hook initInternal failed", t);
         }
+    }
+
+    /**
+     * Asks VDExtra to check for an update, now that Virtual Desktop is starting.
+     *
+     * <p>Only a broadcast is sent from here. Doing the check in this process would run it under
+     * Virtual Desktop's identity, so any notification would appear to come from Virtual Desktop
+     * and would need Virtual Desktop to hold the notification permission.
+     *
+     * <p>There is no Context handed to a module, and ActivityThread has none to give this early
+     * in the process, so this waits for one on a thread of its own rather than blocking startup.
+     */
+    private void requestUpdateCheck() {
+        new Thread(() -> {
+            for (int i = 0; i < 30; i++) {
+                try {
+                    Object app = Class.forName("android.app.ActivityThread")
+                            .getMethod("currentApplication").invoke(null);
+                    if (app instanceof Context) {
+                        ((Context) app).sendBroadcast(new Intent(UpdateCheckReceiver.ACTION)
+                                .setClassName(BuildConfig.APPLICATION_ID,
+                                        UpdateCheckReceiver.class.getName()));
+                        log(Log.INFO, TAG, "requested update check");
+                        return;
+                    }
+                } catch (Throwable t) {
+                    log(Log.WARN, TAG, "update check request failed", t);
+                    return;
+                }
+                try { Thread.sleep(1000); } catch (InterruptedException e) { return; }
+            }
+        }, "vdextra-update-check").start();
     }
 
     /**
