@@ -938,10 +938,10 @@ static bool tryAttachMono(){
 // resignaturing initInternal, caught safely by hookRuntimeInit's own try/catch).
 static std::atomic<bool> gPollStarted{false};
 static void pollForMono(){
-  std::this_thread::sleep_for(std::chrono::seconds(3));
+  std::this_thread::sleep_for(std::chrono::seconds(20));
   for(int i=0;; i++){
     if(tryAttachMono()) return;
-    if(i>0 && i%300==0) LOGI("still waiting for libmonosgen-2.0.so (%ds elapsed)",i/5);
+    if(i>0 && i%300==0) LOGI("still waiting for libmonosgen-2.0.so (%ds elapsed)",i/5+20);
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
   }
 }
@@ -952,11 +952,12 @@ extern "C" JNIEXPORT void JNICALL Java_com_gitmorin_vdextra_MainModule_nativeIni
   if(!gPollStarted.compare_exchange_strong(expected,true)) return;
   std::thread(pollForMono).detach();
 }
-// Called synchronously from the Java-level System.loadLibrary hook (MainModule.hookLoadLibrary),
-// right after each library load returns - catches libmonosgen becoming resident on Xamarin's
-// own bootstrap thread, before its native init has had a chance to run on that same thread,
-// instead of racing it from our own background poll thread (see setupMonoHooks' comment).
+// Called synchronously from the Java-level Runtime.initInternal hook (MainModule.
+// hookRuntimeInit), right after the real initInternal() call returns - catches libmonosgen
+// on the exact thread that just finished Mono's own bootstrap, instead of racing it from our
+// own background poll thread (see setupMonoHooks' comment).
 extern "C" JNIEXPORT jboolean JNICALL Java_com_gitmorin_vdextra_MainModule_nativeCheckMono(JNIEnv* env, jobject thiz){
+  LOGI("nativeCheckMono called from the Java initInternal hook");
   return tryAttachMono()?JNI_TRUE:JNI_FALSE;
 }
 extern "C" JNIEXPORT void JNICALL Java_com_gitmorin_vdextra_MainModule_nativeSetNoMusic(JNIEnv* env, jobject thiz, jboolean disable){
