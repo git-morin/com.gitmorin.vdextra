@@ -54,6 +54,10 @@ execute_process(
           --nimcache:${NIM_CACHE}
           --os:android --cpu:arm64 --cc:clang
           --app:lib --noMain:on
+          # Mono drives implicit null checks, GC write barriers and thread suspension through
+          # SIGSEGV, so Nim must not install its own handlers: hijacking them turned the first
+          # signal Mono would have handled itself into a Nim fatal error and a silent quit().
+          -d:noSignalHandler
           --mm:arc --threads:on
           -d:release
           ${NIM_SRC_DIR}/vdextra.nim
