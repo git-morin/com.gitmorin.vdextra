@@ -85,8 +85,10 @@ jobs:
           subjects=$(git log --pretty=%s ${range:+$range})
           bodies=$(git log --pretty=%B ${range:+$range})
 
-          # Conventional commits: a `!` or BREAKING CHANGE wins, then feat, otherwise a patch.
-          if echo "$subjects" | grep -qE '^[a-z]+(\([^)]*\))?!:' || echo "$bodies" | grep -q 'BREAKING CHANGE'; then
+          # Conventional commits: a breaking marker wins, then feat, otherwise a patch. The
+          # breaking footer is matched at the start of a line and with its colon, per the spec -
+          # matching the bare phrase anywhere let a commit message *describing* this rule trip it.
+          if echo "$subjects" | grep -qE '^[a-z]+(\([^)]*\))?!:' || echo "$bodies" | grep -qE '^BREAKING[ -]CHANGE:'; then
             major=$((major + 1)); minor=0; patch=0; bump=major
           elif echo "$subjects" | grep -qE '^feat(\([^)]*\))?:'; then
             minor=$((minor + 1)); patch=0; bump=minor
