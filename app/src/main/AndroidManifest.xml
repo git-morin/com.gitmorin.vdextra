@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.INTERNET" />
+  <!-- Needed to install the APK the in-app updater downloads; the user still gets the system
+       install prompt, and must allow this app to install packages. -->
+  <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
   <queries>
     <package android:name="VirtualDesktop.Quest" />
     <package android:name="VirtualDesktop.Android" />

@@ -1,8 +1,15 @@
 package com.gitmorin.vdextra;
 
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.pm.PackageInstaller;
 import android.graphics.Color;
+import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.EditText;
@@ -20,6 +27,7 @@ import com.google.android.material.color.MaterialColors;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.materialswitch.MaterialSwitch;
 
+import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -47,8 +55,10 @@ public class MainActivity extends AppCompatActivity {
     private MaterialCardView homeStatus;
     private ImageView homeStatusIcon;
     private TextView homeStatusText, homeStatusSub;
-    private View rowLanguage;
-    private TextView langValue;
+    private View rowLanguage, rowChannel, rowUpdate;
+    private TextView langValue, channelValue, updateValue;
+    private Updates.Release pendingUpdate;
+    private boolean updateBusy;
     private LinearLayout homeInfoSystem, homeInfoDict;
     private MaterialSwitch swNoMusic, swNoPerf, swExtend, swUnlock, swForceLan;
 
@@ -80,6 +90,10 @@ public class MainActivity extends AppCompatActivity {
         homeInfoDict = findViewById(R.id.home_info_dict);
         rowLanguage = findViewById(R.id.row_language);
         langValue = findViewById(R.id.lang_value);
+        rowChannel = findViewById(R.id.row_channel);
+        channelValue = findViewById(R.id.channel_value);
+        rowUpdate = findViewById(R.id.row_update);
+        updateValue = findViewById(R.id.update_value);
         swNoMusic = findViewById(R.id.sw_no_music);
         swNoPerf = findViewById(R.id.sw_no_perf);
         swExtend = findViewById(R.id.sw_extend);
@@ -102,6 +116,8 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.row_extend).setOnLongClickListener(v -> { showScaleDialog(); return true; });
 
         rowLanguage.setOnClickListener(v -> showLanguageDialog());
+        rowChannel.setOnClickListener(v -> showChannelDialog());
+        rowUpdate.setOnClickListener(v -> onUpdateRowClicked());
 
         ensureServiceRegistered();
         showPage(0);
@@ -111,6 +127,12 @@ public class MainActivity extends AppCompatActivity {
     @Override protected void onResume() {
         super.onResume();
         sCurrent = this;
+        IntentFilter f = new IntentFilter(Updates.installAction());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(installReceiver, f, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(installReceiver, f);
+        }
         if (sService == null) { try { XposedServiceHelper.registerListener(sListener); } catch (Throwable ignored) {} }
         ensureServiceRegistered();
         refresh();
@@ -118,6 +140,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override protected void onPause() {
         if (sCurrent == this) sCurrent = null;
+        try { unregisterReceiver(installReceiver); } catch (Throwable ignored) {}
         super.onPause();
     }
 
@@ -157,6 +180,11 @@ public class MainActivity extends AppCompatActivity {
 
         String lang = currentLanguage();
         langValue.setText(languageLabel(lang));
+
+        channelValue.setText(channelLabel(currentChannel()));
+        if (!updateBusy && pendingUpdate == null) {
+            updateValue.setText(getString(R.string.update_current_format, version(getPackageName())));
+        }
 
         homeInfoDict.removeAllViews();
         addInfo(homeInfoDict, R.drawable.ic_dict, getString(R.string.dict_language_title), languageSummary(lang));
@@ -287,6 +315,119 @@ public class MainActivity extends AppCompatActivity {
      * and so stays distinguishable from "not chosen yet", which is what makes that fallback
      * stop applying the moment the user picks anything.
      */
+    private String currentChannel() {
+        return Updates.channelOf(getSharedPreferences(PrefKeys.NAME, MODE_PRIVATE)
+                .getString(PrefKeys.UPDATE_CHANNEL, Updates.STABLE));
+    }
+
+    private String channelLabel(String channel) {
+        return getString(Updates.DEV.equals(channel)
+                ? R.string.update_channel_dev : R.string.update_channel_stable);
+    }
+
+    private void showChannelDialog() {
+        String[] channels = { Updates.STABLE, Updates.DEV };
+        String[] labels = { channelLabel(Updates.STABLE), channelLabel(Updates.DEV) };
+        int checked = Updates.DEV.equals(currentChannel()) ? 1 : 0;
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.dialog_channel_title)
+                .setSingleChoiceItems(labels, checked, (d, which) -> {
+                    save(PrefKeys.UPDATE_CHANNEL, channels[which]);
+                    // Whatever was found on the old channel no longer applies.
+                    pendingUpdate = null;
+                    d.dismiss();
+                    refresh();
+                })
+                .show();
+    }
+
+    /** First tap checks; once something is found, the same row installs it. */
+    private void onUpdateRowClicked() {
+        if (updateBusy) return;
+        if (pendingUpdate != null) startInstall(pendingUpdate);
+        else checkForUpdate();
+    }
+
+    private void checkForUpdate() {
+        updateBusy = true;
+        updateValue.setText(R.string.update_checking);
+        String channel = currentChannel();
+        String current = version(getPackageName());
+        new Thread(() -> {
+            try {
+                Updates.Release r = Updates.latest(channel);
+                boolean newer = r != null && Updates.compareVersions(r.version, current) > 0;
+                runOnUiThread(() -> {
+                    updateBusy = false;
+                    pendingUpdate = newer ? r : null;
+                    updateValue.setText(newer
+                            ? getString(R.string.update_available_format, r.version)
+                            : getString(R.string.update_up_to_date));
+                });
+            } catch (Throwable t) {
+                runOnUiThread(() -> {
+                    updateBusy = false;
+                    pendingUpdate = null;
+                    updateValue.setText(getString(R.string.update_failed_format, reason(t)));
+                });
+            }
+        }).start();
+    }
+
+    private void startInstall(Updates.Release r) {
+        // Without this the session is created and then fails with nothing useful to show.
+        if (!Updates.canInstall(this)) {
+            Toast.makeText(this, R.string.update_needs_permission, Toast.LENGTH_LONG).show();
+            try {
+                startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Updates.settingsUriFor(this)));
+            } catch (Throwable ignored) {}
+            return;
+        }
+        updateBusy = true;
+        updateValue.setText(R.string.update_downloading);
+        new Thread(() -> {
+            try {
+                File apk = Updates.download(this, r);
+                runOnUiThread(() -> updateValue.setText(R.string.update_installing));
+                Updates.install(this, apk);
+                runOnUiThread(() -> updateBusy = false);
+            } catch (Throwable t) {
+                runOnUiThread(() -> {
+                    updateBusy = false;
+                    updateValue.setText(getString(R.string.update_failed_format, reason(t)));
+                });
+            }
+        }).start();
+    }
+
+    private static String reason(Throwable t) {
+        String m = t.getMessage();
+        return (m == null || m.isEmpty()) ? t.getClass().getSimpleName() : m;
+    }
+
+    private final BroadcastReceiver installReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) {
+            int status = i.getIntExtra(PackageInstaller.EXTRA_STATUS, -1);
+            if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+                // The system wants to ask the user itself; this is the normal path, not an error.
+                Intent confirm = i.getParcelableExtra(Intent.EXTRA_INTENT);
+                if (confirm != null) {
+                    confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    try { startActivity(confirm); } catch (Throwable ignored) {}
+                }
+            } else if (status == PackageInstaller.STATUS_SUCCESS) {
+                pendingUpdate = null;
+                Toast.makeText(MainActivity.this, R.string.update_restart_hint, Toast.LENGTH_LONG).show();
+                refresh();
+            } else {
+                String m = i.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE);
+                updateValue.setText(getString(R.string.update_failed_format,
+                        m == null ? String.valueOf(status) : m));
+            }
+        }
+    };
+
     private String currentLanguage() {
         String v = getSharedPreferences(PrefKeys.NAME, MODE_PRIVATE)
                 .getString(PrefKeys.UI_LANGUAGE, null);

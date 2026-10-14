@@ -8,6 +8,7 @@ class PrefKeys {
     final String NAME = "vdextra";
 
     final String UI_LANGUAGE = "ui_language";
+    final String UPDATE_CHANNEL = "update_channel";
     final String DISABLE_MUSIC = "disable_music";
     final String DISABLE_QUALITY_SOUND = "disable_quality_sound";
     final String QUALITY_MASK = "quality_mask";
