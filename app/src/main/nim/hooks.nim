@@ -1,4 +1,4 @@
-import std/[atomics, math]
+import std/[atomics, math, strutils]
 import vdlog, mono
 
 proc dobbyHook(target, replace: pointer, orig: ptr pointer): cint
@@ -70,25 +70,38 @@ var
 
 proc doSetup*()
 
+# A Nim exception unwinding into Mono's stack frames is undefined, and a Defect escaping a
+# hook took the whole process down with no tombstone and nothing in logcat. Every hook body
+# is wrapped so a failure is logged and the original still runs.
+template guard(what: string, body: untyped) =
+  try:
+    body
+  except CatchableError as e:
+    logE("hook " & what & " raised: " & e.msg)
+  except Defect as e:
+    logE("hook " & what & " defect: " & e.msg)
+
 proc hookSetText(tb: pointer, text: MonoString) {.cdecl.} =
   ## Translation only. Font handling is left entirely to set_Font, so that this setter never
   ## writes Font re-entrantly.
   var s = text
-  let t = translate(text)
-  if t != nil: s = t
+  guard "set_Text":
+    let t = translate(text)
+    if t != nil: s = t
   if origSetText != nil: origSetText(tb, s)
 
 proc hookSetFont(tb: pointer, newFont: MonoObject) {.cdecl.} =
   var cur = newFont
-  let gf = goodFont()
-  if gf != nil and cur != nil and cur != gf:
-    var needsFull = false
-    if getTextFn != nil:
-      let p = getTextFn(tb)
-      needsFull = hasCjk(monoStrChars(p), monoStrLen(p))
-    if needsFull and glyphCount(cur) < FULL:
-      let repl = pickReplacement(fontSize(cur))
-      if repl != nil and repl != cur: cur = repl
+  guard "set_Font":
+    let gf = goodFont()
+    if gf != nil and cur != nil and cur != gf:
+      var needsFull = false
+      if getTextFn != nil:
+        let p = getTextFn(tb)
+        needsFull = hasCjk(monoStrChars(p), monoStrLen(p))
+      if needsFull and glyphCount(cur) < FULL:
+        let repl = pickReplacement(fontSize(cur))
+        if repl != nil and repl != cur: cur = repl
   if origSetFont != nil: origSetFont(tb, cur)
 
 proc hookMusicPlay(self: pointer) {.cdecl.} =
@@ -162,7 +175,13 @@ proc rateMul(): float32 =
   let s = gBitrateScale.load()
   if gBitrateExtend.load() and s > 0'f32: s else: 1'f32
 
-proc scaleMax(v: int32): int32 = int32(float64(v) * float64(rateMul()))
+proc scaleMax(v: int32): int32 =
+  # Saturate rather than wrap. The C++ this replaces relied on a C cast quietly truncating on
+  # overflow; Nim range-checks the same conversion and a Defect here killed the process.
+  let scaled = float64(v) * float64(rateMul())
+  if scaled >= float64(high(int32)): high(int32)
+  elif scaled <= float64(low(int32)): low(int32)
+  else: int32(scaled)
 
 proc kCalc(mn, mx: float32): float32 =
   let s = rateMul()
@@ -408,7 +427,7 @@ proc installBitrateHooks(): bool =
   else:
     logE("LimitSlider class not found")
 
-  logI("bitrate hooks=" & $ok & " scale=" & $rateMul())
+  logI("bitrate hooks=" & $ok & " scale=" & formatFloat(rateMul(), ffDecimal, 2))
   hx != nil and us != nil and ms != nil
 
 # Forcing HasValidIdentity=true keeps locally discovered PCs merged in when the server is
@@ -466,29 +485,33 @@ proc installForceLanHooks(): bool =
   if hook(methodAddr(mus, ".ctor", 0), cast[pointer](hookUserSettingsCtor),
           cast[ptr pointer](addr origUserSettingsCtor)):
     logI("hooked UserSettings::.ctor")
-  logI("forceLan: identity field=" & $cast[uint64](gFieldUserHasValidIdentity))
+  logI("forceLan: identity field=0x" &
+       toLowerAscii(toHex(cast[uint64](gFieldUserHasValidIdentity), 16)).strip(
+         trailing = false, chars = {'0'}))
   true
 
 proc hookSerialize(x0, x1, x2, x3: pointer) {.cdecl.} =
   ## Watches font deserialisation for a full-coverage font to adopt.
   let slot = x1
   if origSerialize != nil: origSerialize(x0, x1, x2, x3)
-  if serDone: return
-  if serCount >= SER_CAP:
-    serDone = true
-    return
-  inc serCount
-  if slot == nil: return
-  let o = cast[ptr MonoObject](slot)[]
-  if o == nil or not isFontClass(o): return
-  if glyphCount(o) >= FULL:
-    markGood(o, "ser")
-    if goodMapHas(14) and goodMapHas(16) and goodMapHas(20) and goodMapHas(24):
+  guard "Serialize":
+    if serDone: return
+    if serCount >= SER_CAP:
       serDone = true
+      return
+    inc serCount
+    if slot == nil: return
+    let o = cast[ptr MonoObject](slot)[]
+    if o == nil or not isFontClass(o): return
+    if glyphCount(o) >= FULL:
+      markGood(o, "ser")
+      if goodMapHas(14) and goodMapHas(16) and goodMapHas(20) and goodMapHas(24):
+        serDone = true
 
 proc tryCaptLoad(o: MonoObject) =
-  if o == nil or not isFontClass(o): return
-  if glyphCount(o) >= FULL: markGood(o, "load")
+  guard "ContentManager::Load":
+    if o == nil or not isFontClass(o): return
+    if glyphCount(o) >= FULL: markGood(o, "load")
 
 proc hookLoad3(x0, x1, x2, x3: pointer): MonoObject {.cdecl.} =
   result = if origLoad3 != nil: origLoad3(x0, x1, x2, x3) else: nil
