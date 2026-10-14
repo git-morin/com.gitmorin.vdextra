@@ -101,6 +101,7 @@ typedef MonoObject*(*fnLoad2)(void*,void*,void*);
 typedef int        (*fnJitExec)(MonoDomain*,void*,int,char**);
 typedef MonoDomain*(*fnJitInit)(const char*);
 typedef int        (*fnRunMain)(void*,int,char**);
+typedef MonoObject*(*fnObjNew)(MonoDomain*,MonoClass*);
 
 static fnGetText   getTextFn=nullptr;
 static fnGetSize   getSizeFn=nullptr;
@@ -114,6 +115,7 @@ static fnJitExec   origJitExec=nullptr;
 static fnJitInit   origJitInit=nullptr;
 static fnRunMain   origRunMain=nullptr;
 static fnMusicPlay origMusicPlay=nullptr;
+static fnObjNew    origObjNew=nullptr;
 
 // Bitrate: scale the internal max-lookup tables (GetMax*Bitrate) locally; the sender normalizes tiers via k=(max*s-min)/(max-min)
 typedef int32_t (*fnMinMax1)(int32_t);
@@ -717,6 +719,17 @@ static MonoString* hookLdstr(void* a0,void* a1,void* a2,void* a3){
   if(!gSetup.load() && gLd%20==2) doSetup();
   return origLdstr?origLdstr(a0,a1,a2,a3):nullptr;
 }
+// Every `new X()` in managed code allocates through this - unlike ldstr (interned, so a
+// literal is only ever loaded once) this should fire continuously in any actively-running
+// app, making it a much more reliable tick for a module that attaches after startup.
+static int gObjNew=0;
+static MonoObject* hookObjNew(MonoDomain* d,MonoClass* k){
+  if(!gDomain && d) gDomain=d;
+  gObjNew++;
+  if(gObjNew<=5 || gObjNew%2000==0) LOGI("object_new call #%d",gObjNew);
+  if(!gSetup.load() && gObjNew%50==7) doSetup();
+  return origObjNew?origObjNew(d,k):nullptr;
+}
 static MonoDomain* hookJitInit(const char* name){
   LOGI("jit_init('%s') called",name?name:"?");
   MonoDomain* d=origJitInit?origJitInit(name):nullptr;
@@ -784,6 +797,8 @@ static void setupMonoHooks(void* handle){
   if(ji) hook(ji,(void*)hookJitInit,(void**)&origJitInit);
   void* rm=dlsym(handle,"mono_runtime_run_main");
   if(rm) hook(rm,(void*)hookRunMain,(void**)&origRunMain);
+  void* on=dlsym(handle,"mono_object_new");
+  if(on && hook(on,(void*)hookObjNew,(void**)&origObjNew)!=0) LOGE("object_new hook failed");
   LOGI("mono hooked");
 }
 
