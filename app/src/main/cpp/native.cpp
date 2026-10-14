@@ -66,6 +66,7 @@ static MonoObject* (*pGchandleGet)(MonoGCHandle)=nullptr;
 static void        (*pGchandleFree)(MonoGCHandle)=nullptr;
 static MonoDomain* (*pGetRootDomain)(void)=nullptr;
 static MonoDomain* (*pDomainGet)(void)=nullptr;
+static void*       (*pThreadAttach)(MonoDomain*)=nullptr;
 
 // Global state
 static MonoDomain* gDomain=nullptr;
@@ -754,6 +755,7 @@ static void resolveMono(void* mh){
   *(void**)&pGchandleFree    =dlsym(mh,"mono_gchandle_free");
   *(void**)&pGetRootDomain   =dlsym(mh,"mono_get_root_domain");
   *(void**)&pDomainGet       =dlsym(mh,"mono_domain_get");
+  *(void**)&pThreadAttach    =dlsym(mh,"mono_thread_attach");
 }
 
 // Install the ldstr/jit hooks once libmonosgen is loaded, then run doSetup() immediately.
@@ -764,6 +766,12 @@ static void resolveMono(void* mh){
 // old native_init.list design, which attached synchronously before the app ran any code at
 // all). By the time we get here Mono is already resident and VD is rendering UI, so corlib
 // and every class doSetup() needs are already loaded - there's nothing left to wait for.
+//
+// doSetupImpl() is documented as managed-thread-only: mono_runtime_invoke (used by getClass's
+// reflection-based lookup) relies on per-thread state Mono only populates for threads it
+// knows about. Our poll loop runs on a plain std::thread Mono never saw, so without an
+// explicit mono_thread_attach() first, those calls silently no-op instead of erroring -
+// attach before calling doSetup() so this thread looks like a normal managed thread to Mono.
 static void setupMonoHooks(void* handle){
   resolveMono(handle);
   if(!pLdstrChecked){ LOGE("mono_ldstr_checked not found"); return; }
@@ -775,6 +783,9 @@ static void setupMonoHooks(void* handle){
   void* rm=dlsym(handle,"mono_runtime_run_main");
   if(rm) hook(rm,(void*)hookRunMain,(void**)&origRunMain);
   LOGI("mono hooked");
+  MonoDomain* d=getDomain();
+  if(d && pThreadAttach){ pThreadAttach(d); LOGI("attached polling thread to domain=%p",(void*)d); }
+  else LOGE("could not attach polling thread (domain=%p pThreadAttach=%p)",(void*)d,(void*)pThreadAttach);
   doSetup();
 }
 
