@@ -19,8 +19,9 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
 // The only JNI method still in C: walking two jobjectArrays is the one job here that is
 // genuinely more direct through the C JNI interface than through Nim's FFI. Every other native
 // method is exported straight from Nim.
-JNIEXPORT void JNICALL Java_com_gitmorin_vdextra_MainModule_nativeSetDict(
-    JNIEnv* env, jobject thiz, jobjectArray keys, jobjectArray vals) {
+JNIEXPORT void JNICALL Java_com_gitmorin_vdextra_MainModule_nativeSetDict(JNIEnv* env, jobject thiz,
+                                                                          jobjectArray keys,
+                                                                          jobjectArray vals) {
   (void)thiz;
   jint n = (*env)->GetArrayLength(env, keys);
   jint m = (*env)->GetArrayLength(env, vals);
