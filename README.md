@@ -18,7 +18,7 @@ This project is an **LSPosed** enhancement module for Virtual Desktop (a VR stre
 
 ## Features
 
-- **Interface translation** — built-in dictionary, supports importing a custom JSON dictionary, with a CJK font fix.
+- **Interface translation** — pick which language to inject over Virtual Desktop's English UI, from the bundled per-language dictionaries; supports importing a custom JSON dictionary, with a CJK font fix.
 - **Disable background music** — stop auto-playing music while not connected.
 - **Disable performance cue sounds** — independently mute 7 cue sounds ~(no more jump scares)~.
 - **Extended bitrate range** — raise the desktop / VR max bitrate (1-3x multiplier, default 2x).
@@ -40,6 +40,34 @@ Requires JDK 17 and the Android SDK (compileSdk 34, NDK 27.0.12077973, CMake).
 export JAVA_HOME=/path/to/jdk-17
 ./gradlew :app:assembleRelease
 ```
+
+## Adding a translation
+
+A language is just a dictionary file named after its BCP-47 tag:
+
+```
+app/src/main/assets/dict/<tag>.json      e.g. zh.json, fr.json, pt-BR.json
+```
+
+Each file maps Virtual Desktop's own English UI string to its translation. Any string absent
+from the file is left untouched, so a partial dictionary is perfectly valid:
+
+```json
+{
+  "Unable to retrieve your computers": "无法获取您的电脑列表",
+  "Connect": "连接"
+}
+```
+
+Drop the file in and rebuild — it appears in the UI-language picker automatically. There is no
+list to register it in and no code to change; the picker enumerates `assets/dict/` and takes
+each language's display name from its tag.
+
+One caveat worth knowing: Virtual Desktop's own font is swapped for a full-coverage one only
+when a string contains a codepoint above `U+2E7F` (`hasCjk` in `native.cpp`). Latin-script
+languages render on the stock font and need nothing extra, but scripts below that threshold
+that the stock font lacks — Cyrillic and Greek in particular — need that check generalised
+first, or they render as missing-glyph boxes.
 
 ## Notes
 
