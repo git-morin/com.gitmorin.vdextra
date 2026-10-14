@@ -601,10 +601,11 @@ proc doSetup*() =
 var gLd = 0
 
 proc hookLdstr(a0, a1, a2, a3: pointer): MonoString {.cdecl.} =
-  if a0 != nil: setDomain(a0)
-  inc gLd
-  if gLd <= 5 or gLd mod 500 == 0: logI("ldstr call #" & $gLd)
-  if not gSetup.load() and gLd mod 20 == 2: doSetup()
+  guard "ldstr":
+    if a0 != nil: setDomain(a0)
+    inc gLd
+    if gLd <= 5 or gLd mod 500 == 0: logI("ldstr call #" & $gLd)
+    if not gSetup.load() and gLd mod 20 == 2: doSetup()
   if origLdstr != nil: origLdstr(a0, a1, a2, a3) else: nil
 
 var gObjNew = 0
@@ -613,10 +614,11 @@ proc hookObjNew(d: MonoDomain, k: MonoClass): MonoObject {.cdecl.} =
   ## Every `new X()` in managed code allocates through here. Unlike ldstr - interned, so a
   ## literal is only ever loaded once - this keeps firing in any actively running app, which
   ## makes it a far more reliable tick for a module that attached after startup.
-  if d != nil: setDomain(d)
-  inc gObjNew
-  if gObjNew <= 5 or gObjNew mod 2000 == 0: logI("object_new call #" & $gObjNew)
-  if not gSetup.load() and gObjNew mod 50 == 7: doSetup()
+  guard "object_new":
+    if d != nil: setDomain(d)
+    inc gObjNew
+    if gObjNew <= 5 or gObjNew mod 2000 == 0: logI("object_new call #" & $gObjNew)
+    if not gSetup.load() and gObjNew mod 50 == 7: doSetup()
   if origObjNew != nil: origObjNew(d, k) else: nil
 
 proc hookJitInit(name: cstring): MonoDomain {.cdecl.} =
