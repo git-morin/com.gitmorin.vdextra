@@ -3,6 +3,7 @@ package com.gitmorin.vdextra;
 import android.content.pm.ApplicationInfo;
 import android.util.Log;
 
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -42,6 +43,8 @@ public class MainModule extends XposedModule {
             log(Log.ERROR, TAG, "native load failed", t);
         }
 
+        hookRuntimeInit(param.getDefaultClassLoader());
+
         try {
             boolean useImported = readBool(PrefKeys.USE_IMPORTED_DICT, true);
             Map<String, String> dict = new LinkedHashMap<>(loadBuiltinDict(moduleApk));
@@ -59,6 +62,38 @@ public class MainModule extends XposedModule {
             log(Log.INFO, TAG, "dict=" + dict.size() + " imported=" + useImported);
         } catch (Throwable t) {
             log(Log.ERROR, TAG, "init failed", t);
+        }
+    }
+
+    // mono.MonoPackageManager.LoadApplication (reached via MonoRuntimeProvider.attachInfo,
+    // one of the earliest ContentProvider lifecycle calls in the process) calls
+    // System.loadLibrary("monosgen-2.0") and then, synchronously on the same thread,
+    // mono.android.Runtime.initInternal(...) - the real native bootstrap (mono_jit_init /
+    // monovm_initialize etc.), which doesn't return until Mono is fully initialized.
+    // Hooking initInternal directly - an ordinary Xamarin-authored static method, not a
+    // native-library-loading method - avoids the caller-classloader stack-walking fragility
+    // that broke hooking System.loadLibrary itself (see prior commit). Letting the real call
+    // complete via chain.proceed() before touching native code means nativeCheckMono() runs
+    // on the exact thread that just finished Mono's own bootstrap - no foreign-thread attach
+    // needed, unlike the background poll thread (nativeInit), which stays as a fallback.
+    private void hookRuntimeInit(ClassLoader cl) {
+        try {
+            Class<?> runtimeCls = Class.forName("mono.android.Runtime", false, cl);
+            Method m = runtimeCls.getDeclaredMethod("initInternal",
+                    String.class, String[].class, String.class, String[].class,
+                    int.class, ClassLoader.class, String[].class, boolean.class, boolean.class);
+            hook(m).intercept(chain -> {
+                Object result = chain.proceed();
+                try {
+                    nativeCheckMono();
+                } catch (Throwable t) {
+                    log(Log.ERROR, TAG, "nativeCheckMono failed", t);
+                }
+                return result;
+            });
+            log(Log.INFO, TAG, "hooked mono.android.Runtime.initInternal");
+        } catch (Throwable t) {
+            log(Log.ERROR, TAG, "hook initInternal failed", t);
         }
     }
 
