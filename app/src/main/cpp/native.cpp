@@ -68,6 +68,8 @@ static MonoDomain* (*pGetRootDomain)(void)=nullptr;
 static MonoDomain* (*pDomainGet)(void)=nullptr;
 static MonoDomain* (*pJitThreadAttach)(MonoDomain*)=nullptr;
 static void        (*pAttachToolsThread)(void)=nullptr;
+static void*       (*pProfilerCreate)(void*)=nullptr;
+static void        (*pProfilerSetRuntimeInitCb)(void*,void(*)(void*))=nullptr;
 
 // Global state
 static MonoDomain* gDomain=nullptr;
@@ -775,6 +777,8 @@ static void resolveMono(void* mh){
   *(void**)&pDomainGet       =dlsym(mh,"mono_domain_get");
   *(void**)&pJitThreadAttach =dlsym(mh,"mono_jit_thread_attach");
   *(void**)&pAttachToolsThread=dlsym(mh,"mono_threads_attach_tools_thread");
+  *(void**)&pProfilerCreate   =dlsym(mh,"mono_profiler_create");
+  *(void**)&pProfilerSetRuntimeInitCb=dlsym(mh,"mono_profiler_set_runtime_initialized_callback");
 }
 
 // This build is MonoVM-hosted (modern .NET-for-Android, confirmed via exported monovm_*
@@ -785,22 +789,26 @@ static void resolveMono(void* mh){
 // Mono's generic/slow-path exported runtime functions. There is no reliable "tick" here -
 // doSetup() has to run immediately once we attach.
 //
-// Getting a MonoDomain* safely from our own background std::thread (one Mono never
-// registered) is the remaining obstacle: mono_get_root_domain() stays resolvable for ABI
-// compat but never actually returns a domain in this build; mono_domain_foreach() asserts/
-// aborts (SIGABRT via mono_threads_enter_gc_unsafe_region_internal, confirmed live -
-// crash-looped VD 3x) when called pre-attachment; and mono_jit_thread_attach(NULL) does NOT
-// auto-resolve a default domain here either - confirmed live via its own abort message,
-// "Assertion ... condition `domain' not met" in mini-runtime.c, so it needs a real domain
-// pointer we don't have, same chicken-and-egg problem one level down.
+// Three different "attach our own foreign thread" APIs have each hit a different internal
+// assertion, all live-confirmed: mono_domain_foreach() aborts via
+// mono_threads_enter_gc_unsafe_region_internal when called pre-attachment (crash-looped VD
+// 3x); mono_jit_thread_attach(NULL) aborts with "condition `domain' not met" - it needs a
+// real domain we don't have; mono_threads_attach_tools_thread() aborts with "condition
+// `mono_threads_inited' not met", even after a 5s wait - this build's runtime bootstrap
+// (thread subsystem, domain, GC) apparently never reaches a state any of these three
+// classic embedding APIs expect, at least not within any delay we can safely guess.
 //
-// mono_threads_attach_tools_thread() is different: it's Mono's own dedicated API for
-// exactly this situation - an external native thread (profiler/debugger/embedder) that
-// needs limited runtime access without being a real managed thread - and takes no domain
-// argument at all, sidestepping the whole discovery problem.
-//
-// Install the ldstr/jit hooks (kept only as redundant safety nets), then attach as a tools
-// thread and run doSetup() right away.
+// mono_profiler_set_runtime_initialized_callback() sidesteps the whole problem: it just
+// stores a function pointer (no thread/GC state touched, so a too-late registration should
+// fail silently rather than crash), and when it does fire, Mono calls us back on its own
+// already-correctly-initialized thread - no foreign-thread attach needed at all.
+static void onRuntimeInitialized(void* prof){
+  LOGI("mono_profiler runtime_initialized callback fired");
+  doSetup();
+}
+
+// Install the ldstr/jit hooks (kept only as redundant safety nets), then register for the
+// runtime-initialized profiler callback, which runs doSetup() itself once it fires.
 static void setupMonoHooks(void* handle){
   resolveMono(handle);
   if(!pLdstrChecked){ LOGE("mono_ldstr_checked not found"); return; }
@@ -814,22 +822,13 @@ static void setupMonoHooks(void* handle){
   void* on=dlsym(handle,"mono_object_new");
   if(on && hook(on,(void*)hookObjNew,(void**)&origObjNew)!=0) LOGE("object_new hook failed");
   LOGI("mono hooked");
-  // mono_threads_attach_tools_thread() ALSO asserts/aborts if called too early (confirmed
-  // live: "Assertion ... condition `mono_threads_inited' not met", mono-threads.c:774) - the
-  // library being resident just means the dynamic linker mapped the file, not that Mono's
-  // own runtime bootstrap (thread subsystem, domain, GC) has run yet. There's no safe way to
-  // poll that readiness without risking the same crash, so wait out a generous fixed margin
-  // first - every run we've observed reaches a fully usable UI within a few seconds of the
-  // library becoming resident, so 5s should comfortably clear thread-subsystem init.
-  std::this_thread::sleep_for(std::chrono::seconds(5));
-  if(pAttachToolsThread){
-    pAttachToolsThread();
-    MonoDomain* d=pGetRootDomain?pGetRootDomain():nullptr;
-    if(!d && pDomainGet) d=pDomainGet();
-    LOGI("attached as tools thread, domain=%p",(void*)d);
-    if(d) gDomain=d;
-  } else LOGE("mono_threads_attach_tools_thread not resolved");
-  doSetup();
+  if(pProfilerCreate && pProfilerSetRuntimeInitCb){
+    void* h=pProfilerCreate(nullptr);
+    if(h){
+      pProfilerSetRuntimeInitCb(h,onRuntimeInitialized);
+      LOGI("registered runtime_initialized profiler callback (handle=%p)",h);
+    } else LOGE("mono_profiler_create returned null");
+  } else LOGE("profiler API not resolved (create=%p cb=%p)",(void*)pProfilerCreate,(void*)pProfilerSetRuntimeInitCb);
 }
 
 // We find libmonosgen ourselves (polling for it, which never triggers a real load) instead
