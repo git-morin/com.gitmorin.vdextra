@@ -958,7 +958,17 @@ extern "C" JNIEXPORT void JNICALL Java_com_gitmorin_vdextra_MainModule_nativeIni
 // own background poll thread (see setupMonoHooks' comment).
 extern "C" JNIEXPORT jboolean JNICALL Java_com_gitmorin_vdextra_MainModule_nativeCheckMono(JNIEnv* env, jobject thiz){
   LOGI("nativeCheckMono called from the Java initInternal hook");
-  return tryAttachMono()?JNI_TRUE:JNI_FALSE;
+  // initInternal() returns almost immediately (confirmed live: this fires ~70ms after launch),
+  // but the very first attach attempt right then can still get rejected as a decoy - bionic's
+  // realpath dedup apparently doesn't always kick in yet for a mapping this fresh (relocations
+  // possibly still settling). We're clearly at the right moment timing-wise, just slightly
+  // ahead of the linker - a brief bounded retry here (blocking this one JNI call, not spawning
+  // anything) is a better fit than falling all the way back to the 20s poll-thread safety net.
+  for(int i=0;i<20;i++){
+    if(tryAttachMono()) return JNI_TRUE;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  return JNI_FALSE;
 }
 extern "C" JNIEXPORT void JNICALL Java_com_gitmorin_vdextra_MainModule_nativeSetNoMusic(JNIEnv* env, jobject thiz, jboolean disable){
   gNoMusic.store(disable==JNI_TRUE);
