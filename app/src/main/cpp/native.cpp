@@ -927,8 +927,18 @@ static bool tryAttachMono(){
   setupMonoHooks(h);
   return true;
 }
+// Give the Java-level Runtime.initInternal hook (MainModule.hookRuntimeInit ->
+// nativeCheckMono) first crack at the attach race: it fires right after Mono's own bootstrap
+// genuinely completes, while this loop's very first check can otherwise land within ~200ms
+// of "native loaded" - right when System.loadLibrary("monosgen-2.0") returns inside
+// LoadApplication but *before* initInternal() has even been called yet, let alone finished
+// (confirmed live: this thread kept winning the race at that point, well before Mono was
+// actually ready, same timing problem as before the Java hook existed). This stays purely a
+// fallback for whenever that hook doesn't fire at all (e.g. a future app version renaming/
+// resignaturing initInternal, caught safely by hookRuntimeInit's own try/catch).
 static std::atomic<bool> gPollStarted{false};
 static void pollForMono(){
+  std::this_thread::sleep_for(std::chrono::seconds(3));
   for(int i=0;; i++){
     if(tryAttachMono()) return;
     if(i>0 && i%300==0) LOGI("still waiting for libmonosgen-2.0.so (%ds elapsed)",i/5);
