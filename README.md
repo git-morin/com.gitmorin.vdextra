@@ -34,12 +34,30 @@ This project is an **LSPosed** enhancement module for Virtual Desktop (a VR stre
 
 ## Build
 
-Requires JDK 17 and the Android SDK (compileSdk 34, NDK 27.0.12077973, CMake).
+Requires JDK 17, the Android SDK (compileSdk 34, NDK 27.0.12077973, CMake) and
+[Nim](https://nim-lang.org) 2.2.x on `PATH`.
 
 ```bash
 export JAVA_HOME=/path/to/jdk-17
 ./gradlew :app:assembleRelease
 ```
+
+The native half is Nim plus a small C shim. Nim is not a second cross-compiler here — CMake runs
+it as a code generator that emits C, which the NDK's clang then compiles, so one toolchain stays
+responsible for the ABI, sysroot and flags. CMake invokes `nim` at configure time because it
+needs the generated file list before it can define the target, so re-run the configure step
+after editing a `.nim` file.
+
+Three Nim settings are load-bearing for running inside Virtual Desktop's process, and all three
+were learned the hard way (see `src/main/cpp/CMakeLists.txt`):
+
+- `-d:noSignalHandler` — Mono drives implicit null checks, GC write barriers and thread
+  suspension through `SIGSEGV`. Nim registering its own handler turns the first such signal into
+  a Nim fatal error and a silent `quit()`.
+- `-d:useMalloc` — Nim's allocator keeps per-thread heaps it initialises when it creates a
+  thread. Every thread here is Mono's or Android's, so that state never exists and the first
+  allocation on one dereferences a null thread-local heap.
+- `--mm:atomicArc` — objects cross those threads, so refcounts have to be atomic.
 
 ## Adding a translation
 
