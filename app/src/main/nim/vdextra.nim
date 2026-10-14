@@ -12,7 +12,9 @@ var
   gPollThread: Thread[void]
 
 proc hex(p: pointer): string =
-  "0x" & toLowerAscii(toHex(cast[uint64](p), 1))
+  # toHex is fixed-width, so a width of 1 silently truncated every address to one digit.
+  let v = cast[uint64](p)
+  if v == 0: "0x0" else: "0x" & toLowerAscii(toHex(v, 16)).strip(trailing = false, chars = {'0'})
 
 proc monoSymOf(name: cstring): pointer {.cdecl.} =
   if not gMono.ok: nil else: gMono.sym(name)
