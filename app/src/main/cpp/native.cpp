@@ -945,9 +945,20 @@ static std::atomic<bool> gPollStarted{false};
 static void pollForMono(){
   std::this_thread::sleep_for(std::chrono::seconds(20));
   for(int i=0;; i++){
-    if(tryAttachMono()) return;
+    if(tryAttachMono()) break;
     if(i>0 && i%300==0) LOGI("still waiting for libmonosgen-2.0.so (%ds elapsed)",i/5+20);
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  }
+  // Attached (by this thread or by the Java hook) - keep retrying doSetup() here for as long
+  // as it takes. This background thread isn't blocking anything Android is waiting on, so
+  // there's no harm in real patience, unlike nativeCheckMono's JNI call, which must stay
+  // fast to avoid stalling ContentProvider.attachInfo() on the app's own main thread (where
+  // the system's bind-application watchdog could kill the process if it blocks too long).
+  for(int i=0;!gSetup.load();i++){
+    doSetup();
+    if(gSetup.load()) break;
+    if(i>0 && i%25==0) LOGI("background doSetup retry #%d, gCorlib=%p",i,gCorlib);
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
   }
 }
 
@@ -958,36 +969,21 @@ extern "C" JNIEXPORT void JNICALL Java_com_gitmorin_vdextra_MainModule_nativeIni
   std::thread(pollForMono).detach();
 }
 // Called synchronously from the Java-level Runtime.initInternal hook (MainModule.
-// hookRuntimeInit), right after the real initInternal() call returns - catches libmonosgen
-// on the exact thread that just finished Mono's own bootstrap, instead of racing it from our
-// own background poll thread (see setupMonoHooks' comment).
+// hookRuntimeInit), right after the real initInternal() call returns. This runs on the
+// app's own main thread (ContentProvider.attachInfo() always does) - it must stay fast, or
+// the system's own bind-application watchdog could kill the process for blocking too long.
+// Only the attach retry happens here (bounded, ~2s: confirmed live the very first attempt
+// can get rejected as a decoy before bionic's realpath dedup settles for a mapping this
+// fresh). Once attached, doSetup()'s own patience lives on the background poll thread
+// instead (see pollForMono) - unlike this JNI call, that thread isn't blocking anything
+// Android is waiting on, so there's no harm in it taking much longer if genuinely needed.
 extern "C" JNIEXPORT jboolean JNICALL Java_com_gitmorin_vdextra_MainModule_nativeCheckMono(JNIEnv* env, jobject thiz){
   LOGI("nativeCheckMono called from the Java initInternal hook");
-  // initInternal() returns almost immediately (confirmed live: this fires ~70ms after launch),
-  // but the very first attach attempt right then can still get rejected as a decoy - bionic's
-  // realpath dedup apparently doesn't always kick in yet for a mapping this fresh (relocations
-  // possibly still settling). We're clearly at the right moment timing-wise, just slightly
-  // ahead of the linker - a brief bounded retry here (blocking this one JNI call, not spawning
-  // anything) is a better fit than falling all the way back to the 20s poll-thread safety net.
   tInSetupFromJavaHook=true;
   bool attached=false;
   for(int i=0;i<20;i++){
     if(tryAttachMono()){ attached=true; break; }
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  }
-  // setupMonoHooks() already tried doSetup() once as part of attaching, but corlib/classes
-  // can still not be ready yet even on this thread (confirmed live: it hit doSetupImpl's
-  // early "!gCorlib" return with zero further log output) - initInternal() returning to Java
-  // apparently doesn't mean Mono's real native bootstrap has finished, just that Xamarin's
-  // own Java-side call into it has returned (possibly kicking off the actual init
-  // asynchronously on its own internal thread). Keep retrying from here, still safely on
-  // this same legitimate, non-foreign thread.
-  if(attached && !gSetup.load()){
-    for(int i=0;i<50 && !gSetup.load();i++){
-      doSetup();
-      if(!gSetup.load()) std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-    LOGI("doSetup retry loop finished, gSetup=%d",(int)gSetup.load());
   }
   tInSetupFromJavaHook=false;
   return attached?JNI_TRUE:JNI_FALSE;
