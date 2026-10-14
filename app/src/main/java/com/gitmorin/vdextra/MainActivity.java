@@ -1,9 +1,7 @@
 package com.gitmorin.vdextra;
 
-import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
-import android.net.Uri;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -23,9 +21,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.materialswitch.MaterialSwitch;
 
 import java.nio.charset.StandardCharsets;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
@@ -33,7 +29,6 @@ import io.github.libxposed.service.XposedService;
 import io.github.libxposed.service.XposedServiceHelper;
 
 public class MainActivity extends AppCompatActivity {
-    private static final int REQ_IMPORT = 1001;
 
     // The listener is a global static and must be a singleton, otherwise callbacks would reach a stale Activity after recreation
     private static volatile XposedService sService = null;
@@ -52,10 +47,10 @@ public class MainActivity extends AppCompatActivity {
     private MaterialCardView homeStatus;
     private ImageView homeStatusIcon;
     private TextView homeStatusText, homeStatusSub;
-    private View rowImport, rowRestore, rowLanguage;
+    private View rowLanguage;
     private TextView langValue;
     private LinearLayout homeInfoSystem, homeInfoDict;
-    private MaterialSwitch swUseDict, swNoMusic, swNoPerf, swExtend, swUnlock, swForceLan;
+    private MaterialSwitch swNoMusic, swNoPerf, swExtend, swUnlock, swForceLan;
 
     private static void ensureServiceRegistered() {
         if (sRegistered) return;
@@ -83,11 +78,8 @@ public class MainActivity extends AppCompatActivity {
         homeStatusSub = findViewById(R.id.home_status_sub);
         homeInfoSystem = findViewById(R.id.home_info_system);
         homeInfoDict = findViewById(R.id.home_info_dict);
-        rowImport = findViewById(R.id.row_import);
-        rowRestore = findViewById(R.id.row_restore);
         rowLanguage = findViewById(R.id.row_language);
         langValue = findViewById(R.id.lang_value);
-        swUseDict = findViewById(R.id.sw_use_dict);
         swNoMusic = findViewById(R.id.sw_no_music);
         swNoPerf = findViewById(R.id.sw_no_perf);
         swExtend = findViewById(R.id.sw_extend);
@@ -99,7 +91,6 @@ public class MainActivity extends AppCompatActivity {
             return true;
         });
 
-        swUseDict.setOnCheckedChangeListener((v, c) -> save(PrefKeys.USE_IMPORTED_DICT, c));
         swNoMusic.setOnCheckedChangeListener((v, c) -> save(PrefKeys.DISABLE_MUSIC, c));
         swNoPerf.setOnCheckedChangeListener((v, c) -> save(PrefKeys.DISABLE_QUALITY_SOUND, c));
         swExtend.setOnCheckedChangeListener((v, c) -> save(PrefKeys.BITRATE_EXTEND, c));
@@ -111,8 +102,6 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.row_extend).setOnLongClickListener(v -> { showScaleDialog(); return true; });
 
         rowLanguage.setOnClickListener(v -> showLanguageDialog());
-        rowImport.setOnClickListener(v -> startImport());
-        rowRestore.setOnClickListener(v -> restoreDict());
 
         ensureServiceRegistered();
         showPage(0);
@@ -161,9 +150,6 @@ public class MainActivity extends AppCompatActivity {
         homeStatusSub.setVisibility(active ? View.GONE : View.VISIBLE);
 
         SharedPreferences p = getSharedPreferences(PrefKeys.NAME, MODE_PRIVATE);
-        int imported = Math.max(DictJson.count(p.getString(PrefKeys.IMPORTED_DICT, null)), 0);
-        String importedTime = p.getString(PrefKeys.IMPORTED_TIME, null);
-        boolean useImported = p.getBoolean(PrefKeys.USE_IMPORTED_DICT, true);
 
         homeInfoSystem.removeAllViews();
         addInfo(homeInfoSystem, R.drawable.ic_module, getString(R.string.info_module_version), version(getPackageName()));
@@ -173,17 +159,9 @@ public class MainActivity extends AppCompatActivity {
         langValue.setText(languageLabel(lang));
 
         homeInfoDict.removeAllViews();
-        addInfo(homeInfoDict, R.drawable.ic_dict, getString(R.string.info_dict_builtin),
-                Languages.isOff(lang) ? getString(R.string.lang_off)
-                        : getString(R.string.lang_entry_format, Languages.displayName(lang), bundledCount(lang)));
-        addInfo(homeInfoDict, R.drawable.ic_dict, getString(R.string.info_dict_imported),
-                imported > 0 ? (getString(R.string.dict_entries_format, imported) + (importedTime != null ? " · " + importedTime : "")) : getString(R.string.dict_none));
-        addInfo(homeInfoDict, R.drawable.ic_check_circle, getString(R.string.info_dict_active),
-                useImported && imported > 0 ? getString(R.string.info_dict_imported)
-                        : Languages.isOff(lang) ? getString(R.string.lang_off) : getString(R.string.info_dict_builtin));
+        addInfo(homeInfoDict, R.drawable.ic_dict, getString(R.string.dict_language_title), languageSummary(lang));
 
         binding = true;
-        swUseDict.setChecked(p.getBoolean(PrefKeys.USE_IMPORTED_DICT, true));
         swNoMusic.setChecked(p.getBoolean(PrefKeys.DISABLE_MUSIC, false));
         swNoPerf.setChecked(p.getBoolean(PrefKeys.DISABLE_QUALITY_SOUND, false));
         swExtend.setChecked(p.getBoolean(PrefKeys.BITRATE_EXTEND, false));
@@ -218,49 +196,6 @@ public class MainActivity extends AppCompatActivity {
         else if (v instanceof Long) e.putLong(key, (Long) v);
         else e.putString(key, String.valueOf(v));
         return e;
-    }
-
-    private void startImport() {
-        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        i.addCategory(Intent.CATEGORY_OPENABLE);
-        i.setType("*/*");
-        i.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/json", "text/plain", "text/json"});
-        startActivityForResult(i, REQ_IMPORT);
-    }
-
-    private void restoreDict() {
-        getSharedPreferences(PrefKeys.NAME, MODE_PRIVATE).edit().remove(PrefKeys.IMPORTED_DICT).remove(PrefKeys.IMPORTED_TIME).apply();
-        if (sService != null) {
-            try {
-                sService.getRemotePreferences(PrefKeys.NAME).edit()
-                        .remove(PrefKeys.IMPORTED_DICT).remove(PrefKeys.IMPORTED_TIME).commit();
-            } catch (Throwable ignored) {}
-        }
-        save(PrefKeys.USE_IMPORTED_DICT, false);
-        refresh();
-        Toast.makeText(this, R.string.toast_dict_restored, Toast.LENGTH_SHORT).show();
-    }
-
-    @Override
-    protected void onActivityResult(int req, int res, Intent data) {
-        super.onActivityResult(req, res, data);
-        if (req != REQ_IMPORT || res != RESULT_OK || data == null) return;
-        Uri uri = data.getData();
-        if (uri == null) return;
-        try (var in = getContentResolver().openInputStream(uri)) {
-            if (in == null) throw new IllegalStateException(getString(R.string.error_cannot_read_file));
-            String json = new String(DictJson.readAll(in), StandardCharsets.UTF_8);
-            int count = DictJson.count(json);
-            if (count <= 0) throw new IllegalStateException(getString(R.string.error_invalid_json));
-            String time = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(new Date());
-            save(PrefKeys.IMPORTED_DICT, json);
-            save(PrefKeys.IMPORTED_TIME, time);
-            save(PrefKeys.USE_IMPORTED_DICT, true);
-            refresh();
-            Toast.makeText(this, getString(R.string.toast_import_success_format, count), Toast.LENGTH_SHORT).show();
-        } catch (Throwable t) {
-            Toast.makeText(this, getString(R.string.toast_import_failed_format, t.getMessage()), Toast.LENGTH_LONG).show();
-        }
     }
 
     private void showSoundDialog() {
@@ -329,8 +264,7 @@ public class MainActivity extends AppCompatActivity {
         int checked = 0;
         for (int i = 0; i < tags.size(); i++) {
             String tag = tags.get(i);
-            labels[i] = Languages.isOff(tag) ? getString(R.string.lang_off)
-                    : getString(R.string.lang_entry_format, Languages.displayName(tag), bundledCount(tag));
+            labels[i] = languageSummary(tag);
             if (tag.equals(current)) checked = i;
         }
 
@@ -355,6 +289,12 @@ public class MainActivity extends AppCompatActivity {
 
     private String languageLabel(String tag) {
         return Languages.isOff(tag) ? getString(R.string.lang_off) : Languages.displayName(tag);
+    }
+
+    /** Language plus how much of the UI it covers, e.g. "中文 · 340 entries". */
+    private String languageSummary(String tag) {
+        return Languages.isOff(tag) ? getString(R.string.lang_off)
+                : getString(R.string.lang_entry_format, Languages.displayName(tag), bundledCount(tag));
     }
 
     private int bundledCount(String tag) {
