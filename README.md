@@ -18,7 +18,7 @@ This project is an **LSPosed** enhancement module for Virtual Desktop (a VR stre
 
 ## Features
 
-- **Interface translation** — pick which language to inject over Virtual Desktop's English UI, from the bundled per-language dictionaries; supports importing a custom JSON dictionary, with a CJK font fix.
+- **Interface translation** — pick which language to inject over Virtual Desktop's English UI, from the bundled per-language dictionaries, with a CJK font fix.
 - **Disable background music** — stop auto-playing music while not connected.
 - **Disable performance cue sounds** — independently mute 7 cue sounds ~(no more jump scares)~.
 - **Extended bitrate range** — raise the desktop / VR max bitrate (1-3x multiplier, default 2x).

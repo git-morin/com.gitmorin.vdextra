@@ -47,9 +47,7 @@ public class MainModule extends XposedModule {
 
         try {
             String lang = readString(PrefKeys.UI_LANGUAGE, Languages.DEFAULT);
-            boolean useImported = readBool(PrefKeys.USE_IMPORTED_DICT, true);
-            Map<String, String> dict = new LinkedHashMap<>(loadBuiltinDict(moduleApk, lang));
-            if (useImported) dict.putAll(loadImportedDict());
+            Map<String, String> dict = loadBuiltinDict(moduleApk, lang);
             String[] ks = new String[dict.size()], vs = new String[dict.size()];
             int i = 0;
             for (Map.Entry<String, String> e : dict.entrySet()) { ks[i] = e.getKey(); vs[i] = e.getValue(); i++; }
@@ -60,8 +58,7 @@ public class MainModule extends XposedModule {
             nativeSetQuality(readBool(PrefKeys.DISABLE_QUALITY_SOUND, false), readInt(PrefKeys.QUALITY_MASK, 0x7F));
             nativeSetBitrate(readBool(PrefKeys.BITRATE_EXTEND, false), readBool(PrefKeys.BITRATE_UNLOCK, false), readFloat(PrefKeys.BITRATE_SCALE, 2.0f));
             nativeSetForceLan(readBool(PrefKeys.FORCE_LAN, true));
-            log(Log.INFO, TAG, "lang=" + (Languages.isOff(lang) ? "off" : lang)
-                    + " dict=" + dict.size() + " imported=" + useImported);
+            log(Log.INFO, TAG, "lang=" + (Languages.isOff(lang) ? "off" : lang) + " dict=" + dict.size());
         } catch (Throwable t) {
             log(Log.ERROR, TAG, "init failed", t);
         }
@@ -120,17 +117,6 @@ public class MainModule extends XposedModule {
             }
         } catch (Throwable t) {
             log(Log.WARN, TAG, "builtin dict failed", t);
-        }
-        return m;
-    }
-
-    private Map<String, String> loadImportedDict() {
-        Map<String, String> m = new LinkedHashMap<>();
-        try {
-            String json = getRemotePreferences(PrefKeys.NAME).getString(PrefKeys.IMPORTED_DICT, null);
-            if (json != null) DictJson.parseInto(json, m);
-        } catch (Throwable t) {
-            log(Log.WARN, TAG, "imported dict failed", t);
         }
         return m;
     }
