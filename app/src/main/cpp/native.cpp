@@ -66,8 +66,6 @@ static MonoObject* (*pGchandleGet)(MonoGCHandle)=nullptr;
 static void        (*pGchandleFree)(MonoGCHandle)=nullptr;
 static MonoDomain* (*pGetRootDomain)(void)=nullptr;
 static MonoDomain* (*pDomainGet)(void)=nullptr;
-static void*       (*pThreadAttach)(MonoDomain*)=nullptr;
-static void        (*pDomainForeach)(void(*)(MonoDomain*,void*),void*)=nullptr;
 
 // Global state
 static MonoDomain* gDomain=nullptr;
@@ -715,21 +713,25 @@ static int gLd=0;
 static MonoString* hookLdstr(void* a0,void* a1,void* a2,void* a3){
   if(!gDomain && a0) gDomain=(MonoDomain*)a0;
   gLd++;
+  if(gLd<=5 || gLd%500==0) LOGI("ldstr call #%d",gLd);
   if(!gSetup.load() && gLd%20==2) doSetup();
   return origLdstr?origLdstr(a0,a1,a2,a3):nullptr;
 }
 static MonoDomain* hookJitInit(const char* name){
+  LOGI("jit_init('%s') called",name?name:"?");
   MonoDomain* d=origJitInit?origJitInit(name):nullptr;
   if(!gDomain && d) gDomain=d;
   if(!gSetup.load()) doSetup();
   return d;
 }
 static int hookJitExec(MonoDomain* domain,void* asm_,int argc,char** argv){
+  LOGI("jit_exec called");
   if(!gDomain && domain) gDomain=domain;
   if(!gSetup.load()) doSetup();
   return origJitExec?origJitExec(domain,asm_,argc,argv):-1;
 }
 static int hookRunMain(void* asm_,int argc,char** argv){
+  LOGI("run_main called");
   if(!gDomain && pGetRootDomain) gDomain=pGetRootDomain();
   if(!gSetup.load()) doSetup();
   return origRunMain?origRunMain(asm_,argc,argv):-1;
@@ -756,8 +758,6 @@ static void resolveMono(void* mh){
   *(void**)&pGchandleFree    =dlsym(mh,"mono_gchandle_free");
   *(void**)&pGetRootDomain   =dlsym(mh,"mono_get_root_domain");
   *(void**)&pDomainGet       =dlsym(mh,"mono_domain_get");
-  *(void**)&pThreadAttach    =dlsym(mh,"mono_thread_attach");
-  *(void**)&pDomainForeach   =dlsym(mh,"mono_domain_foreach");
 }
 
 // This build is MonoVM-hosted (modern .NET-for-Android, confirmed via exported monovm_*
@@ -765,27 +765,15 @@ static void resolveMono(void* mh){
 // it stays resolvable (ABI compat) but never actually returns a domain here, observed live.
 // mono_domain_foreach() walks Mono's own global domain registry instead, which works
 // regardless of which embedding/hosting model created the (single, in MonoVM) domain.
-static MonoDomain* gForeachDomain=nullptr;
-static void domainForeachCb(MonoDomain* d,void*){ if(!gForeachDomain) gForeachDomain=d; }
-static MonoDomain* findAnyDomain(){
-  if(pDomainForeach){ gForeachDomain=nullptr; pDomainForeach(domainForeachCb,nullptr); if(gForeachDomain) return gForeachDomain; }
-  return getDomain();
-}
-
-// Install the ldstr/jit hooks once libmonosgen is loaded, then wait for the root domain and
-// run doSetup() ourselves. The jit_init/jit_exec/run_main/ldstr-triggered calls to doSetup()
-// below are now just redundant safety nets, not the primary path: those depend on hooks that
-// either fire once very early (jit_init et al. - and on a fast attach, as observed live,
-// mono_get_root_domain() can still be null at this point, meaning the real mono_jit_init call
-// hasn't happened *yet* either, so our hook on it should still fire) or on a literal that's
-// never interned again after startup (ldstr, unreliable on an AOT build). Rather than trust
-// either path, we just wait for the domain to exist ourselves.
+// mono_domain_foreach() and friends assert/abort (SIGABRT, confirmed live via
+// mono_threads_enter_gc_unsafe_region_internal) when called from a thread Mono has never
+// registered - which rules out discovering the domain from our own background std::thread
+// by calling *any* Mono API at all before that thread is registered. There's no safe
+// getter to break this chicken-and-egg from the outside, so doSetup() has to stay fully on
+// the managed-thread call sites below (ldstr/jit_init/jit_exec/run_main) - instrumented so
+// we can see directly, from real device logs, which of them actually fires.
 //
-// doSetupImpl() is documented as managed-thread-only: mono_runtime_invoke (used by getClass's
-// reflection-based lookup) relies on per-thread state Mono only populates for threads it
-// knows about. Our poll loop runs on a plain std::thread Mono never saw, so without an
-// explicit mono_thread_attach() first, those calls silently no-op instead of erroring -
-// attach before calling doSetup() so this thread looks like a normal managed thread to Mono.
+// Install the ldstr/jit hooks once libmonosgen is loaded.
 static void setupMonoHooks(void* handle){
   resolveMono(handle);
   if(!pLdstrChecked){ LOGE("mono_ldstr_checked not found"); return; }
@@ -797,17 +785,6 @@ static void setupMonoHooks(void* handle){
   void* rm=dlsym(handle,"mono_runtime_run_main");
   if(rm) hook(rm,(void*)hookRunMain,(void**)&origRunMain);
   LOGI("mono hooked");
-  MonoDomain* d=nullptr;
-  for(int i=0;; i++){
-    if(gSetup.load()) return;                 // one of the real hooks already finished setup
-    d=findAnyDomain();
-    if(d) break;
-    if(i>0 && i%300==0) LOGI("still waiting for the Mono root domain (%ds elapsed)",i/5);
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-  }
-  if(pThreadAttach){ pThreadAttach(d); LOGI("attached polling thread to domain=%p",(void*)d); }
-  else LOGE("mono_thread_attach not resolved");
-  doSetup();
 }
 
 // We find libmonosgen ourselves (polling for it, which never triggers a real load) instead
