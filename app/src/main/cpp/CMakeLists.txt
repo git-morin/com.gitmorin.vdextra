@@ -55,7 +55,7 @@ execute_process(
           --os:android --cpu:arm64 --cc:clang
           --app:lib --noMain:on
           --mm:arc --threads:on
-          -d:release --panics:on
+          -d:release
           ${NIM_SRC_DIR}/vdextra.nim
   RESULT_VARIABLE NIM_RESULT
   OUTPUT_VARIABLE NIM_OUTPUT
