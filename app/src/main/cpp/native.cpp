@@ -823,17 +823,17 @@ static void onGcEvent(void* prof,int event,uint32_t generation,int isSerial){
   doSetup();
 }
 
-// Attach is now driven synchronously from the Java-level System.loadLibrary hook (see
-// MainModule.hookLoadLibrary) catching libmonosgen becoming resident on Xamarin's own
-// bootstrap thread - before Xamarin's native init has had a chance to call jit_init et al.
-// on that same thread, unlike the old background-poll-thread approach which consistently
-// arrived within ~400ms of residency and raced Mono's own bootstrap (confirmed live: three
-// different foreign-thread-attach APIs and three profiler callback types all stayed
-// permanently dead no matter how long we waited, pointing at a release build with
-// classic-threading/profiler instrumentation compiled out rather than a timing issue -
-// nothing we could attach as, from any thread, after the fact, was ever going to work).
-// Installing these hooks here should now happen *before* Xamarin's thread gets to call any
-// of them for real, so they have an actual chance to fire legitimately this time.
+// Attach is now driven synchronously from the Java-level Runtime.initInternal hook (see
+// MainModule.hookRuntimeInit -> nativeCheckMono), which calls this on the exact OS thread
+// that just executed Xamarin's own initInternal() - a thread Mono's own bootstrap genuinely
+// ran on, not a foreign pthread we spawned ourselves. Every foreign-thread-attach API we
+// tried earlier (mono_domain_foreach, mono_jit_thread_attach, mono_threads_attach_tools_thread)
+// asserted/aborted on a background pthread Mono never registered; calling doSetup() directly
+// here should behave completely differently, since this isn't a foreign thread at all.
+// setupMonoHooks() can still be reached from the 20s-delayed poll-thread fallback though
+// (if the Java hook never fires) - gCalledFromJavaHook tracks which case we're in, since
+// doSetup() is only safe to call directly from the former.
+static thread_local bool tInSetupFromJavaHook=false;
 static void setupMonoHooks(void* handle){
   resolveMono(handle);
   if(!pLdstrChecked){ LOGE("mono_ldstr_checked not found"); return; }
@@ -848,10 +848,15 @@ static void setupMonoHooks(void* handle){
   if(on && hook(on,(void*)hookObjNew,(void**)&origObjNew)!=0) LOGE("object_new hook failed");
   LOGI("mono hooked");
   void* h=pProfilerCreate?pProfilerCreate(nullptr):nullptr;
-  if(!h){ LOGE("mono_profiler_create failed/unresolved"); return; }
-  if(pProfilerSetRuntimeInitCb){ pProfilerSetRuntimeInitCb(h,onRuntimeInitialized); LOGI("registered runtime_initialized callback"); }
-  if(pProfilerSetThreadStartedCb){ pProfilerSetThreadStartedCb(h,onThreadStarted); LOGI("registered thread_started callback"); }
-  if(pProfilerSetGcEventCb){ pProfilerSetGcEventCb(h,onGcEvent); LOGI("registered gc_event callback"); }
+  if(h){
+    if(pProfilerSetRuntimeInitCb){ pProfilerSetRuntimeInitCb(h,onRuntimeInitialized); LOGI("registered runtime_initialized callback"); }
+    if(pProfilerSetThreadStartedCb){ pProfilerSetThreadStartedCb(h,onThreadStarted); LOGI("registered thread_started callback"); }
+    if(pProfilerSetGcEventCb){ pProfilerSetGcEventCb(h,onGcEvent); LOGI("registered gc_event callback"); }
+  } else LOGE("mono_profiler_create failed/unresolved");
+  if(tInSetupFromJavaHook){
+    LOGI("calling doSetup() directly - this is Xamarin's own bootstrap thread, not a foreign one");
+    doSetup();
+  }
 }
 
 // We find libmonosgen ourselves (polling for it, which never triggers a real load) instead
@@ -964,10 +969,12 @@ extern "C" JNIEXPORT jboolean JNICALL Java_com_gitmorin_vdextra_MainModule_nativ
   // possibly still settling). We're clearly at the right moment timing-wise, just slightly
   // ahead of the linker - a brief bounded retry here (blocking this one JNI call, not spawning
   // anything) is a better fit than falling all the way back to the 20s poll-thread safety net.
+  tInSetupFromJavaHook=true;
   for(int i=0;i<20;i++){
-    if(tryAttachMono()) return JNI_TRUE;
+    if(tryAttachMono()) { tInSetupFromJavaHook=false; return JNI_TRUE; }
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
+  tInSetupFromJavaHook=false;
   return JNI_FALSE;
 }
 extern "C" JNIEXPORT void JNICALL Java_com_gitmorin_vdextra_MainModule_nativeSetNoMusic(JNIEnv* env, jobject thiz, jboolean disable){
