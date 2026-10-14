@@ -814,6 +814,14 @@ static void setupMonoHooks(void* handle){
   void* on=dlsym(handle,"mono_object_new");
   if(on && hook(on,(void*)hookObjNew,(void**)&origObjNew)!=0) LOGE("object_new hook failed");
   LOGI("mono hooked");
+  // mono_threads_attach_tools_thread() ALSO asserts/aborts if called too early (confirmed
+  // live: "Assertion ... condition `mono_threads_inited' not met", mono-threads.c:774) - the
+  // library being resident just means the dynamic linker mapped the file, not that Mono's
+  // own runtime bootstrap (thread subsystem, domain, GC) has run yet. There's no safe way to
+  // poll that readiness without risking the same crash, so wait out a generous fixed margin
+  // first - every run we've observed reaches a fully usable UI within a few seconds of the
+  // library becoming resident, so 5s should comfortably clear thread-subsystem init.
+  std::this_thread::sleep_for(std::chrono::seconds(5));
   if(pAttachToolsThread){
     pAttachToolsThread();
     MonoDomain* d=pGetRootDomain?pGetRootDomain():nullptr;
