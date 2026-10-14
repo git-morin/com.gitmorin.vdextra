@@ -7,6 +7,7 @@ import lombok.experimental.UtilityClass;
 class PrefKeys {
     final String NAME = "vdextra";
 
+    final String UI_LANGUAGE = "ui_language";
     final String IMPORTED_DICT = "imported_dict";
     final String IMPORTED_TIME = "imported_time";
     final String USE_IMPORTED_DICT = "use_imported_dict";

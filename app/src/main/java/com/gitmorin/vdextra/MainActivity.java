@@ -24,7 +24,9 @@ import com.google.android.material.materialswitch.MaterialSwitch;
 
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 
 import io.github.libxposed.service.XposedService;
@@ -50,7 +52,8 @@ public class MainActivity extends AppCompatActivity {
     private MaterialCardView homeStatus;
     private ImageView homeStatusIcon;
     private TextView homeStatusText, homeStatusSub;
-    private View rowImport, rowRestore;
+    private View rowImport, rowRestore, rowLanguage;
+    private TextView langValue;
     private LinearLayout homeInfoSystem, homeInfoDict;
     private MaterialSwitch swUseDict, swNoMusic, swNoPerf, swExtend, swUnlock, swForceLan;
 
@@ -82,6 +85,8 @@ public class MainActivity extends AppCompatActivity {
         homeInfoDict = findViewById(R.id.home_info_dict);
         rowImport = findViewById(R.id.row_import);
         rowRestore = findViewById(R.id.row_restore);
+        rowLanguage = findViewById(R.id.row_language);
+        langValue = findViewById(R.id.lang_value);
         swUseDict = findViewById(R.id.sw_use_dict);
         swNoMusic = findViewById(R.id.sw_no_music);
         swNoPerf = findViewById(R.id.sw_no_perf);
@@ -105,6 +110,7 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.row_no_perf).setOnLongClickListener(v -> { showSoundDialog(); return true; });
         findViewById(R.id.row_extend).setOnLongClickListener(v -> { showScaleDialog(); return true; });
 
+        rowLanguage.setOnClickListener(v -> showLanguageDialog());
         rowImport.setOnClickListener(v -> startImport());
         rowRestore.setOnClickListener(v -> restoreDict());
 
@@ -163,12 +169,18 @@ public class MainActivity extends AppCompatActivity {
         addInfo(homeInfoSystem, R.drawable.ic_module, getString(R.string.info_module_version), version(getPackageName()));
         addInfo(homeInfoSystem, R.drawable.ic_app, getString(R.string.info_vd_version), vdVersion());
 
+        String lang = currentLanguage();
+        langValue.setText(languageLabel(lang));
+
         homeInfoDict.removeAllViews();
-        addInfo(homeInfoDict, R.drawable.ic_dict, getString(R.string.info_dict_builtin), getString(R.string.dict_entries_format, bundledCount()));
+        addInfo(homeInfoDict, R.drawable.ic_dict, getString(R.string.info_dict_builtin),
+                Languages.isOff(lang) ? getString(R.string.lang_off)
+                        : getString(R.string.lang_entry_format, Languages.displayName(lang), bundledCount(lang)));
         addInfo(homeInfoDict, R.drawable.ic_dict, getString(R.string.info_dict_imported),
                 imported > 0 ? (getString(R.string.dict_entries_format, imported) + (importedTime != null ? " · " + importedTime : "")) : getString(R.string.dict_none));
         addInfo(homeInfoDict, R.drawable.ic_check_circle, getString(R.string.info_dict_active),
-                useImported && imported > 0 ? getString(R.string.info_dict_imported) : getString(R.string.info_dict_builtin));
+                useImported && imported > 0 ? getString(R.string.info_dict_imported)
+                        : Languages.isOff(lang) ? getString(R.string.lang_off) : getString(R.string.info_dict_builtin));
 
         binding = true;
         swUseDict.setChecked(p.getBoolean(PrefKeys.USE_IMPORTED_DICT, true));
@@ -303,8 +315,51 @@ public class MainActivity extends AppCompatActivity {
         return getString(R.string.version_not_installed);
     }
 
-    private int bundledCount() {
-        try (var in = getAssets().open("zh_ui_dict.json")) {
+    /**
+     * Offers English plus every dictionary bundled in {@code assets/dict/}, so a newly added
+     * language shows up here on its own without any change to this screen.
+     */
+    private void showLanguageDialog() {
+        List<String> tags = new ArrayList<>();
+        tags.add(Languages.OFF);
+        tags.addAll(Languages.available(getAssets()));
+
+        String current = currentLanguage();
+        String[] labels = new String[tags.size()];
+        int checked = 0;
+        for (int i = 0; i < tags.size(); i++) {
+            String tag = tags.get(i);
+            labels[i] = Languages.isOff(tag) ? getString(R.string.lang_off)
+                    : getString(R.string.lang_entry_format, Languages.displayName(tag), bundledCount(tag));
+            if (tag.equals(current)) checked = i;
+        }
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.dialog_language_title)
+                .setSingleChoiceItems(labels, checked, (d, which) -> {
+                    String tag = tags.get(which);
+                    save(PrefKeys.UI_LANGUAGE, tag);
+                    d.dismiss();
+                    refresh();
+                    Toast.makeText(this, getString(R.string.toast_language_format, languageLabel(tag)),
+                            Toast.LENGTH_LONG).show();
+                })
+                .show();
+    }
+
+    private String currentLanguage() {
+        String v = getSharedPreferences(PrefKeys.NAME, MODE_PRIVATE)
+                .getString(PrefKeys.UI_LANGUAGE, Languages.DEFAULT);
+        return v != null ? v : Languages.DEFAULT;
+    }
+
+    private String languageLabel(String tag) {
+        return Languages.isOff(tag) ? getString(R.string.lang_off) : Languages.displayName(tag);
+    }
+
+    private int bundledCount(String tag) {
+        if (Languages.isOff(tag)) return 0;
+        try (var in = getAssets().open(Languages.assetPath(tag))) {
             return DictJson.count(new String(DictJson.readAll(in), StandardCharsets.UTF_8));
         } catch (Throwable t) { return 0; }
     }
