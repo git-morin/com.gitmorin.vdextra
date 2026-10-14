@@ -18,7 +18,7 @@ This project is an **LSPosed** enhancement module for Virtual Desktop (a VR stre
 
 ## Features
 
-- **Interface translation** — pick which language to inject over Virtual Desktop's English UI, from the bundled per-language dictionaries, with a CJK font fix.
+- **Interface translation** — inject a translation over Virtual Desktop's English UI. Follows your system language by default and falls back to English; pick any bundled language explicitly to override. Includes a CJK font fix.
 - **Disable background music** — stop auto-playing music while not connected.
 - **Disable performance cue sounds** — independently mute 7 cue sounds ~(no more jump scares)~.
 - **Extended bitrate range** — raise the desktop / VR max bitrate (1-3x multiplier, default 2x).
@@ -61,7 +61,17 @@ from the file is left untouched, so a partial dictionary is perfectly valid:
 
 Drop the file in and rebuild — it appears in the UI-language picker automatically. There is no
 list to register it in and no code to change; the picker enumerates `assets/dict/` and takes
-each language's display name from its tag.
+each language's display name from its tag. Adding `fr.json` also makes French the default on
+French-language headsets, since an unset picker follows the system language.
+
+Language selection resolves in this order:
+
+1. The language explicitly chosen in the picker, if there is one — including English, which is
+   stored as "no dictionary" rather than as a reverse translation.
+2. Otherwise the best bundled match for the system's languages, in the user's own order of
+   preference: exact tag (`pt-BR`), then bare language (`pt`), then any region of that language
+   (a `pt-PT` device still gets a bundled `pt-BR` dictionary).
+3. Otherwise English, by applying no dictionary at all.
 
 One caveat worth knowing: Virtual Desktop's own font is swapped for a full-coverage one only
 when a string contains a codepoint above `U+2E7F` (`hasCjk` in `native.cpp`). Latin-script
