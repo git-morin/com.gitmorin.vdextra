@@ -770,22 +770,60 @@ static void setupMonoHooks(void* handle){
   LOGI("mono hooked");
 }
 
-// We find libmonosgen ourselves (polling dlopen/RTLD_NOLOAD, which is a no-op if it's
-// already loaded and never triggers a real load) instead of registering as a native_init.list
-// module for a load-notification callback. The latter makes the host framework (Vector)
-// install a global inline hook on the linker's own do_dlopen - on some framework/OS
-// combinations that hook corrupts unrelated register state inside the linker's genuinely
-// unmodified code, crashing the whole process on its very next (unrelated) dlopen call.
-// Never hooking do_dlopen at all - ours or the framework's - sidesteps that entirely.
-// No upper bound here: VD's own cold start (asset loading, codec/runtime init on a VR
-// headset) can comfortably exceed a minute, and a one-shot giveup with no retry means a
-// slow launch silently disables every hook for that process's entire lifetime. The thread
-// is cheap to leave sleeping, so it just keeps checking for as long as the process lives.
+// We find libmonosgen ourselves (polling for it, which never triggers a real load) instead
+// of registering as a native_init.list module for a load-notification callback. The latter
+// makes the host framework (Vector) install a global inline hook on the linker's own
+// do_dlopen - on some framework/OS combinations that hook corrupts unrelated register state
+// inside the linker's genuinely unmodified code, crashing the whole process on its very next
+// (unrelated) dlopen call. Never hooking do_dlopen at all - ours or the framework's -
+// sidesteps that entirely.
+//
+// Our own .so is injected (memfd-style) outside of VD's own per-APK ClassLoader, so it does
+// not share VD's linker namespace. libmonosgen-2.0.so is one of VD's private native libs,
+// loaded through that app-local namespace - RTLD_NOLOAD only searches namespaces visible to
+// the caller, so it can never see it, no matter how long we wait (confirmed live: the lib
+// was resident in /proc/self/maps while RTLD_NOLOAD kept missing it indefinitely). Instead
+// we read the resident library's own absolute path out of /proc/self/maps and dlopen() that
+// full path - bionic dedupes already-loaded libraries by realpath across namespaces before
+// consulting namespace search-path rules, so this attaches to the real, already-running
+// instance rather than mapping a second independent copy.
+struct LoadedLib { std::string path; uintptr_t base=0, end=0; };
+static LoadedLib findLoadedLib(const char* soname){
+  LoadedLib r;
+  FILE* f=fopen("/proc/self/maps","r");
+  if(!f) return r;
+  char line[1024];
+  size_t sl=strlen(soname);
+  while(fgets(line,sizeof(line),f)){
+    size_t len=strlen(line);
+    while(len>0 && (line[len-1]=='\n'||line[len-1]=='\r')) line[--len]=0;
+    if(len<sl || strcmp(line+len-sl,soname)!=0) continue;
+    char* slash=strchr(line,'/');
+    if(!slash) continue;
+    unsigned long b=0,e=0;
+    if(sscanf(line,"%lx-%lx",&b,&e)!=2) continue;
+    if(!r.base || (uintptr_t)b<r.base) r.base=(uintptr_t)b;
+    if((uintptr_t)e>r.end) r.end=(uintptr_t)e;
+    r.path=slash;
+  }
+  fclose(f);
+  return r;
+}
 static std::atomic<bool> gPollStarted{false};
 static void pollForMono(){
   for(int i=0;; i++){
-    void* h=dlopen("libmonosgen-2.0.so", RTLD_NOW|RTLD_NOLOAD);
-    if(h){ setupMonoHooks(h); return; }
+    LoadedLib lib=findLoadedLib("libmonosgen-2.0.so");
+    if(!lib.path.empty()){
+      void* h=dlopen(lib.path.c_str(), RTLD_NOW);
+      if(h){
+        void* probe=dlsym(h,"mono_get_root_domain");
+        bool genuine=probe && (uintptr_t)probe>=lib.base && (uintptr_t)probe<lib.end;
+        if(genuine){ LOGI("libmonosgen attached (base=%p)",(void*)lib.base); setupMonoHooks(h); return; }
+        LOGE("dlopen('%s') returned a handle outside the resident lib's range (base=%p end=%p probe=%p) - refusing to hook a decoy copy",lib.path.c_str(),(void*)lib.base,(void*)lib.end,probe);
+      } else {
+        LOGE("dlopen('%s') failed: %s",lib.path.c_str(),dlerror());
+      }
+    }
     if(i>0 && i%300==0) LOGI("still waiting for libmonosgen-2.0.so (%ds elapsed)",i/5);
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
   }
