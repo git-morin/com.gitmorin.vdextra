@@ -16,8 +16,6 @@
 #include <thread>
 #include <chrono>
 #include <dlfcn.h>
-#include <elf.h>
-#include <link.h>
 #include <android/log.h>
 #include <jni.h>
 #include <math.h>
@@ -758,114 +756,40 @@ static int hookRunMain(void* asm_,int argc,char** argv){
   return origRunMain?origRunMain(asm_,argc,argv):-1;
 }
 
-// Symbol resolution without dlopen/dlsym.
-//
-// dlopen() cannot be used to reach libmonosgen-2.0.so at all. bionic's "is this library
-// already loaded?" check (find_loaded_library_by_realpath) is scoped to the *calling*
-// linker namespace: our .so is injected outside VD's per-APK ClassLoader namespace, while
-// libmonosgen is one of VD's private libs inside it. So dlopen() of its path can never
-// find the running instance to reuse - it silently maps a brand new, second copy of the
-// 3MB runtime instead, whose mono_init() has never run. Every exported accessor in that
-// copy then reads *that* copy's zeroed globals: mono_get_corlib() and
-// mono_get_root_domain() return null forever, mono_threads_attach_tools_thread() asserts
-// on 'mono_threads_inited', and profiler callbacks register into a list the real runtime
-// never iterates. (Statically confirmed none of those are compiled-out ABI stubs: e.g.
-// mono_get_corlib is literally `adrp x8, ...; ldr x0, [x8, #0x998]; ret` over a real
-// global.) Worse, dlopen() of a runtime copy also runs its DT_INIT_ARRAY constructors.
-//
-// So we never dlopen. We read the already-mapped image directly: take the resident
-// instance's base from /proc/self/maps and walk its in-memory ELF (program headers ->
-// PT_DYNAMIC -> DT_SYMTAB/DT_STRTAB/DT_HASH) to resolve exports ourselves. This lib's
-// .dynsym/.dynstr/.hash all live inside its first PT_LOAD, so they are genuinely mapped
-// and need no file access, and its lowest PT_LOAD p_vaddr is 0, so the load bias is just
-// the base address. Addresses resolved this way point at the real, running runtime.
-struct ElfSyms {
-  uintptr_t bias=0;
-  const char* strtab=nullptr;
-  const ElfW(Sym)* symtab=nullptr;
-  size_t count=0;
-  size_t syment=sizeof(ElfW(Sym));
-  bool ok() const { return strtab&&symtab&&count; }
-  void* sym(const char* name) const {
-    if(!ok()) return nullptr;
-    for(size_t i=0;i<count;i++){
-      const ElfW(Sym)* s=(const ElfW(Sym)*)((const char*)symtab + i*syment);
-      if(s->st_shndx==SHN_UNDEF || !s->st_value) continue;
-      if(strcmp(strtab+s->st_name,name)==0) return (void*)(bias + s->st_value);
-    }
-    return nullptr;
-  }
-};
-static ElfSyms elfSymsAt(uintptr_t base){
-  ElfSyms r;
-  const ElfW(Ehdr)* eh=(const ElfW(Ehdr)*)base;
-  if(memcmp(eh->e_ident,ELFMAG,SELFMAG)!=0) return r;
-  const ElfW(Phdr)* ph=(const ElfW(Phdr)*)(base + eh->e_phoff);
-  uintptr_t dynVa=0, minVa=UINTPTR_MAX;
-  for(int i=0;i<eh->e_phnum;i++){
-    if(ph[i].p_type==PT_DYNAMIC) dynVa=ph[i].p_vaddr;
-    else if(ph[i].p_type==PT_LOAD && ph[i].p_vaddr<minVa) minVa=ph[i].p_vaddr;
-  }
-  if(!dynVa || minVa==UINTPTR_MAX) return r;
-  uintptr_t bias=base-minVa;
-  // bionic leaves DT_* pointer entries as link-time vaddrs on some paths and pre-relocates
-  // them on others; a value already above the load bias is clearly the latter.
-  auto fix=[bias](uintptr_t v)->uintptr_t{ return v>=bias ? v : bias+v; };
-  const char* strtab=nullptr; const ElfW(Sym)* symtab=nullptr;
-  size_t syment=sizeof(ElfW(Sym)), count=0; const uint32_t* gnu=nullptr;
-  for(const ElfW(Dyn)* d=(const ElfW(Dyn)*)(bias+dynVa); d->d_tag!=DT_NULL; d++){
-    switch(d->d_tag){
-      case DT_STRTAB:   strtab=(const char*)fix(d->d_un.d_ptr); break;
-      case DT_SYMTAB:   symtab=(const ElfW(Sym)*)fix(d->d_un.d_ptr); break;
-      case DT_SYMENT:   syment=(size_t)d->d_un.d_val; break;
-      case DT_HASH:     count=((const uint32_t*)fix(d->d_un.d_ptr))[1]; break;  // nchain == nsyms
-      case DT_GNU_HASH: gnu=(const uint32_t*)fix(d->d_un.d_ptr); break;
-      default: break;
-    }
-  }
-  // Only needed if the image was linked --hash-style=gnu (this one carries both): the GNU
-  // table has no explicit symbol count, so derive it from the highest bucket's chain end.
-  if(!count && gnu){
-    uint32_t nbucket=gnu[0], symoff=gnu[1], bloomsz=gnu[2];
-    const uint32_t* buckets=gnu+4+bloomsz*(sizeof(ElfW(Addr))/sizeof(uint32_t));
-    const uint32_t* chain=buckets+nbucket;
-    uint32_t last=0;
-    for(uint32_t i=0;i<nbucket;i++) if(buckets[i]>last) last=buckets[i];
-    if(last>=symoff){ while(!(chain[last-symoff]&1)) last++; count=last+1; }
-    else count=symoff;
-  }
-  if(!strtab||!symtab||!count) return r;
-  r.bias=bias; r.strtab=strtab; r.symtab=symtab; r.count=count; r.syment=syment;
-  return r;
-}
+// Finding the live Mono image and resolving its exports now lives in Nim (see
+// nim/elfsyms.nim, which carries the full explanation of why dlopen cannot be used here).
+// vdFindLiveMono() returns the base address of the mapped instance whose runtime is actually
+// up, or 0 while none is, and vdMonoSym() resolves out of that same instance.
+extern "C" uintptr_t vdFindLiveMono();
+extern "C" void* vdMonoSym(const char* name);
 
 // Resolve Mono symbols out of the already-running runtime image
-static void resolveMono(const ElfSyms& ms){
-  *(void**)&pGetCorlib       =ms.sym("mono_get_corlib");
-  *(void**)&pClassFromName   =ms.sym("mono_class_from_name");
-  *(void**)&pClassGetMethod  =ms.sym("mono_class_get_method_from_name");
-  *(void**)&pRuntimeInvoke   =ms.sym("mono_runtime_invoke");
-  *(void**)&pTypeGetClass    =ms.sym("mono_type_get_class");
-  *(void**)&pCompileMethod   =ms.sym("mono_compile_method");
-  *(void**)&pObjGetClass     =ms.sym("mono_object_get_class");
-  *(void**)&pObjUnbox        =ms.sym("mono_object_unbox");
-  *(void**)&pClassGetParent  =ms.sym("mono_class_get_parent");
-  *(void**)&pClassGetField   =ms.sym("mono_class_get_field_from_name");
-  *(void**)&pFieldGetValue   =ms.sym("mono_field_get_value");
-  *(void**)&pFieldSetValue   =ms.sym("mono_field_set_value");
-  *(void**)&pLdstrChecked    =ms.sym("mono_ldstr_checked");
-  *(void**)&pStringNewUtf16  =ms.sym("mono_string_new_utf16");
-  *(void**)&pGchandleNew     =ms.sym("mono_gchandle_new");
-  *(void**)&pGchandleGet     =ms.sym("mono_gchandle_get_target");
-  *(void**)&pGchandleFree    =ms.sym("mono_gchandle_free");
-  *(void**)&pGetRootDomain   =ms.sym("mono_get_root_domain");
-  *(void**)&pDomainGet       =ms.sym("mono_domain_get");
-  *(void**)&pJitThreadAttach =ms.sym("mono_jit_thread_attach");
-  *(void**)&pAttachToolsThread=ms.sym("mono_threads_attach_tools_thread");
-  *(void**)&pProfilerCreate   =ms.sym("mono_profiler_create");
-  *(void**)&pProfilerSetRuntimeInitCb=ms.sym("mono_profiler_set_runtime_initialized_callback");
-  *(void**)&pProfilerSetThreadStartedCb=ms.sym("mono_profiler_set_thread_started_callback");
-  *(void**)&pProfilerSetGcEventCb=ms.sym("mono_profiler_set_gc_event_callback");
+static void resolveMono(){
+  *(void**)&pGetCorlib       =vdMonoSym("mono_get_corlib");
+  *(void**)&pClassFromName   =vdMonoSym("mono_class_from_name");
+  *(void**)&pClassGetMethod  =vdMonoSym("mono_class_get_method_from_name");
+  *(void**)&pRuntimeInvoke   =vdMonoSym("mono_runtime_invoke");
+  *(void**)&pTypeGetClass    =vdMonoSym("mono_type_get_class");
+  *(void**)&pCompileMethod   =vdMonoSym("mono_compile_method");
+  *(void**)&pObjGetClass     =vdMonoSym("mono_object_get_class");
+  *(void**)&pObjUnbox        =vdMonoSym("mono_object_unbox");
+  *(void**)&pClassGetParent  =vdMonoSym("mono_class_get_parent");
+  *(void**)&pClassGetField   =vdMonoSym("mono_class_get_field_from_name");
+  *(void**)&pFieldGetValue   =vdMonoSym("mono_field_get_value");
+  *(void**)&pFieldSetValue   =vdMonoSym("mono_field_set_value");
+  *(void**)&pLdstrChecked    =vdMonoSym("mono_ldstr_checked");
+  *(void**)&pStringNewUtf16  =vdMonoSym("mono_string_new_utf16");
+  *(void**)&pGchandleNew     =vdMonoSym("mono_gchandle_new");
+  *(void**)&pGchandleGet     =vdMonoSym("mono_gchandle_get_target");
+  *(void**)&pGchandleFree    =vdMonoSym("mono_gchandle_free");
+  *(void**)&pGetRootDomain   =vdMonoSym("mono_get_root_domain");
+  *(void**)&pDomainGet       =vdMonoSym("mono_domain_get");
+  *(void**)&pJitThreadAttach =vdMonoSym("mono_jit_thread_attach");
+  *(void**)&pAttachToolsThread=vdMonoSym("mono_threads_attach_tools_thread");
+  *(void**)&pProfilerCreate   =vdMonoSym("mono_profiler_create");
+  *(void**)&pProfilerSetRuntimeInitCb=vdMonoSym("mono_profiler_set_runtime_initialized_callback");
+  *(void**)&pProfilerSetThreadStartedCb=vdMonoSym("mono_profiler_set_thread_started_callback");
+  *(void**)&pProfilerSetGcEventCb=vdMonoSym("mono_profiler_set_gc_event_callback");
 }
 
 // This build is MonoVM-hosted (modern .NET-for-Android, confirmed via exported monovm_*
@@ -885,7 +809,7 @@ static void resolveMono(const ElfSyms& ms){
 // returned null indefinitely and the profiler callbacks registered cleanly but never fired.
 // That looked like a runtime whose introspection had been compiled out of a release build.
 // It wasn't: all of those calls were landing in a dead *second copy* of libmonosgen that our
-// own dlopen() had mapped (see the ElfSyms comment). An uninitialized runtime image answers
+// own dlopen() had mapped (see nim/elfsyms.nim). An uninitialized runtime image answers
 // exactly this way - zeroed globals, unset init flags, a profiler list nobody iterates.
 // Resolving against the real image should make all of it moot; the callbacks below are kept
 // as harmless extra triggers, since thread_started and gc_event recur for the app's lifetime
@@ -914,17 +838,17 @@ static void onGcEvent(void* prof,int event,uint32_t generation,int isSerial){
 // (if the Java hook never fires) - gCalledFromJavaHook tracks which case we're in, since
 // doSetup() is only safe to call directly from the former.
 static thread_local bool tInSetupFromJavaHook=false;
-static void setupMonoHooks(const ElfSyms& ms){
-  resolveMono(ms);
+static void setupMonoHooks(){
+  resolveMono();
   if(!pLdstrChecked){ LOGE("mono_ldstr_checked not found"); return; }
   if(hook((void*)pLdstrChecked,(void*)hookLdstr,(void**)&origLdstr)!=0) LOGE("ldstr hook failed");
-  void* je=ms.sym("mono_jit_exec");
+  void* je=vdMonoSym("mono_jit_exec");
   if(je) hook(je,(void*)hookJitExec,(void**)&origJitExec);
-  void* ji=ms.sym("mono_jit_init");
+  void* ji=vdMonoSym("mono_jit_init");
   if(ji) hook(ji,(void*)hookJitInit,(void**)&origJitInit);
-  void* rm=ms.sym("mono_runtime_run_main");
+  void* rm=vdMonoSym("mono_runtime_run_main");
   if(rm) hook(rm,(void*)hookRunMain,(void**)&origRunMain);
-  void* on=ms.sym("mono_object_new");
+  void* on=vdMonoSym("mono_object_new");
   if(on && hook(on,(void*)hookObjNew,(void**)&origObjNew)!=0) LOGE("object_new hook failed");
   LOGI("mono hooked");
   void* h=pProfilerCreate?pProfilerCreate(nullptr):nullptr;
@@ -947,78 +871,21 @@ static void setupMonoHooks(const ElfSyms& ms){
 // (unrelated) dlopen call. Never hooking do_dlopen at all - ours or the framework's -
 // sidesteps that entirely.
 //
-// Our own .so is injected (memfd-style) outside of VD's own per-APK ClassLoader, so it does
-// not share VD's linker namespace. libmonosgen-2.0.so is one of VD's private native libs,
-// loaded through that app-local namespace, and every namespace-scoped linker lookup is
-// therefore blind to it: RTLD_NOLOAD can never see it no matter how long we wait (confirmed
-// live: the lib sat in /proc/self/maps while RTLD_NOLOAD kept missing it indefinitely), and
-// neither can dl_iterate_phdr. dlopen() by its absolute path does not help either - that is
-// the trap this used to fall into; see the ElfSyms comment for why it maps a dead second
-// copy instead of reusing the running one. /proc/self/maps is the one view of the process
-// that ignores namespaces entirely, so it stays our only way in - we just stop at reading
-// the mapping and resolve symbols from the image ourselves.
-// Devices can have more than one resident copy of the same soname mapped at once (e.g. a
-// Quest-customized zygote preloading common VR-runtime libs alongside VD's own private
-// instance) - a single [min-base, max-end) spanning *all* matching maps lines would wrongly
-// treat the gap between two unrelated instances as "valid" too. So each instance is tracked
-// as its own tight range, grouped by its file-offset-0 segment (the start of a fresh load).
-struct LibInstance { uintptr_t base=0, end=0; };
-struct LoadedLib { std::string path; std::vector<LibInstance> instances; };
-static LoadedLib findLoadedLib(const char* soname){
-  LoadedLib r;
-  FILE* f=fopen("/proc/self/maps","r");
-  if(!f) return r;
-  char line[1024];
-  size_t sl=strlen(soname);
-  while(fgets(line,sizeof(line),f)){
-    size_t len=strlen(line);
-    while(len>0 && (line[len-1]=='\n'||line[len-1]=='\r')) line[--len]=0;
-    if(len<sl || strcmp(line+len-sl,soname)!=0) continue;
-    char* slash=strchr(line,'/');
-    if(!slash) continue;
-    r.path=slash;
-    unsigned long b=0,e=0,off=0;
-    char perm[8]={0};
-    if(sscanf(line,"%lx-%lx %7s %lx",&b,&e,perm,&off)<4) continue;
-    if(off==0){
-      r.instances.push_back({(uintptr_t)b,(uintptr_t)e});
-    } else if(!r.instances.empty() && (uintptr_t)e>r.instances.back().end){
-      r.instances.back().end=(uintptr_t)e;   // later segment of the same load (rodata/data)
-    }
-  }
-  fclose(f);
-  return r;
-}
-// Single attach attempt. For each resident instance of the lib, resolve its exports out of
-// its own mapped image (no dlopen - see the ElfSyms comment) and ask it whether its runtime
-// is actually up: mono_get_corlib()/mono_get_root_domain() read real globals that stay null
-// until mono_init() has run in *that* image. That makes "is the runtime ready?" a direct
-// question we can ask, instead of a timing guess - and it is also what distinguishes the
-// genuine runtime from any never-initialized copy, so there is no decoy to fall for.
-// Returning false simply means "not ready yet, ask again".
+// Locating the image and resolving its symbols is the Nim side's job now (nim/elfsyms.nim),
+// including why every linker-level lookup is blind to it and /proc/self/maps is the only way
+// in. vdFindLiveMono() answers 0 for "no mapped instance has a running runtime yet", which is
+// an ordinary answer rather than a failure, so attaching too early is simply not expressible.
+//
 // Idempotent and safe to call from multiple places/threads - whichever call wins the race
 // installs the hooks, every other call becomes a no-op.
 static std::atomic<bool> gAttached{false};
 static bool tryAttachMono(){
   if(gAttached.load()) return true;
-  LoadedLib lib=findLoadedLib("libmonosgen-2.0.so");
-  if(lib.path.empty()) return false;
-  for(auto& inst:lib.instances){
-    ElfSyms ms=elfSymsAt(inst.base);
-    if(!ms.ok()) continue;
-    auto corlib=(void*(*)(void))ms.sym("mono_get_corlib");
-    auto rootdom=(void*(*)(void))ms.sym("mono_get_root_domain");
-    void* c=corlib?corlib():nullptr;
-    void* d=rootdom?rootdom():nullptr;
-    if(!c&&!d) continue;   // mapped, but its mono_init() has not run (or has not run yet)
-    bool expected=false;
-    if(!gAttached.compare_exchange_strong(expected,true)) return true;  // another caller won the race
-    LOGI("libmonosgen attached: live runtime at base=%p (corlib=%p root_domain=%p, %zu resident instance(s), %zu syms)",
-         (void*)inst.base,c,d,lib.instances.size(),ms.count);
-    setupMonoHooks(ms);
-    return true;
-  }
-  return false;
+  if(!vdFindLiveMono()) return false;
+  bool expected=false;
+  if(!gAttached.compare_exchange_strong(expected,true)) return true;  // another caller won the race
+  setupMonoHooks();
+  return true;
 }
 // Fallback for whenever the Java-level Runtime.initInternal hook (MainModule.hookRuntimeInit
 // -> nativeCheckMono) doesn't fire at all - e.g. a future app version renaming or

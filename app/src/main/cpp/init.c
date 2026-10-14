@@ -12,12 +12,10 @@
 #include <jni.h>
 
 void NimMain(void);
-void nimSpike(void);
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
   (void)vm;
   (void)reserved;
   NimMain();
-  nimSpike();
   return JNI_VERSION_1_6;
 }
