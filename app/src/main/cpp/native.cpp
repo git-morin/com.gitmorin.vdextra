@@ -67,6 +67,7 @@ static void        (*pGchandleFree)(MonoGCHandle)=nullptr;
 static MonoDomain* (*pGetRootDomain)(void)=nullptr;
 static MonoDomain* (*pDomainGet)(void)=nullptr;
 static void*       (*pThreadAttach)(MonoDomain*)=nullptr;
+static void        (*pDomainForeach)(void(*)(MonoDomain*,void*),void*)=nullptr;
 
 // Global state
 static MonoDomain* gDomain=nullptr;
@@ -756,6 +757,19 @@ static void resolveMono(void* mh){
   *(void**)&pGetRootDomain   =dlsym(mh,"mono_get_root_domain");
   *(void**)&pDomainGet       =dlsym(mh,"mono_domain_get");
   *(void**)&pThreadAttach    =dlsym(mh,"mono_thread_attach");
+  *(void**)&pDomainForeach   =dlsym(mh,"mono_domain_foreach");
+}
+
+// This build is MonoVM-hosted (modern .NET-for-Android, confirmed via exported monovm_*
+// symbols), not the classic Xamarin.Android AppDomain model mono_get_root_domain assumes -
+// it stays resolvable (ABI compat) but never actually returns a domain here, observed live.
+// mono_domain_foreach() walks Mono's own global domain registry instead, which works
+// regardless of which embedding/hosting model created the (single, in MonoVM) domain.
+static MonoDomain* gForeachDomain=nullptr;
+static void domainForeachCb(MonoDomain* d,void*){ if(!gForeachDomain) gForeachDomain=d; }
+static MonoDomain* findAnyDomain(){
+  if(pDomainForeach){ gForeachDomain=nullptr; pDomainForeach(domainForeachCb,nullptr); if(gForeachDomain) return gForeachDomain; }
+  return getDomain();
 }
 
 // Install the ldstr/jit hooks once libmonosgen is loaded, then wait for the root domain and
@@ -786,7 +800,7 @@ static void setupMonoHooks(void* handle){
   MonoDomain* d=nullptr;
   for(int i=0;; i++){
     if(gSetup.load()) return;                 // one of the real hooks already finished setup
-    d=getDomain();
+    d=findAnyDomain();
     if(d) break;
     if(i>0 && i%300==0) LOGI("still waiting for the Mono root domain (%ds elapsed)",i/5);
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
