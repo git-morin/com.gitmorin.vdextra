@@ -756,7 +756,14 @@ static void resolveMono(void* mh){
   *(void**)&pDomainGet       =dlsym(mh,"mono_domain_get");
 }
 
-// Install the ldstr/jit hooks once libmonosgen is loaded.
+// Install the ldstr/jit hooks once libmonosgen is loaded, then run doSetup() immediately.
+// The jit_init/jit_exec/run_main/ldstr-triggered calls to doSetup() below are now just
+// redundant safety nets, not the primary path: those only fire once, very early in the
+// process (jit_init et al.) or depend on a literal never having been interned yet (ldstr) -
+// both routinely already happened by the time our poll-based attach completes (unlike the
+// old native_init.list design, which attached synchronously before the app ran any code at
+// all). By the time we get here Mono is already resident and VD is rendering UI, so corlib
+// and every class doSetup() needs are already loaded - there's nothing left to wait for.
 static void setupMonoHooks(void* handle){
   resolveMono(handle);
   if(!pLdstrChecked){ LOGE("mono_ldstr_checked not found"); return; }
@@ -768,6 +775,7 @@ static void setupMonoHooks(void* handle){
   void* rm=dlsym(handle,"mono_runtime_run_main");
   if(rm) hook(rm,(void*)hookRunMain,(void**)&origRunMain);
   LOGI("mono hooked");
+  doSetup();
 }
 
 // We find libmonosgen ourselves (polling for it, which never triggers a real load) instead
@@ -787,7 +795,13 @@ static void setupMonoHooks(void* handle){
 // full path - bionic dedupes already-loaded libraries by realpath across namespaces before
 // consulting namespace search-path rules, so this attaches to the real, already-running
 // instance rather than mapping a second independent copy.
-struct LoadedLib { std::string path; uintptr_t base=0, end=0; };
+// Devices can have more than one resident copy of the same soname mapped at once (e.g. a
+// Quest-customized zygote preloading common VR-runtime libs alongside VD's own private
+// instance) - a single [min-base, max-end) spanning *all* matching maps lines would wrongly
+// treat the gap between two unrelated instances as "valid" too. So each instance is tracked
+// as its own tight range, grouped by its file-offset-0 segment (the start of a fresh load).
+struct LibInstance { uintptr_t base=0, end=0; };
+struct LoadedLib { std::string path; std::vector<LibInstance> instances; };
 static LoadedLib findLoadedLib(const char* soname){
   LoadedLib r;
   FILE* f=fopen("/proc/self/maps","r");
@@ -800,11 +814,15 @@ static LoadedLib findLoadedLib(const char* soname){
     if(len<sl || strcmp(line+len-sl,soname)!=0) continue;
     char* slash=strchr(line,'/');
     if(!slash) continue;
-    unsigned long b=0,e=0;
-    if(sscanf(line,"%lx-%lx",&b,&e)!=2) continue;
-    if(!r.base || (uintptr_t)b<r.base) r.base=(uintptr_t)b;
-    if((uintptr_t)e>r.end) r.end=(uintptr_t)e;
     r.path=slash;
+    unsigned long b=0,e=0,off=0;
+    char perm[8]={0};
+    if(sscanf(line,"%lx-%lx %7s %lx",&b,&e,perm,&off)<4) continue;
+    if(off==0){
+      r.instances.push_back({(uintptr_t)b,(uintptr_t)e});
+    } else if(!r.instances.empty() && (uintptr_t)e>r.instances.back().end){
+      r.instances.back().end=(uintptr_t)e;   // later segment of the same load (rodata/data)
+    }
   }
   fclose(f);
   return r;
@@ -817,9 +835,10 @@ static void pollForMono(){
       void* h=dlopen(lib.path.c_str(), RTLD_NOW);
       if(h){
         void* probe=dlsym(h,"mono_get_root_domain");
-        bool genuine=probe && (uintptr_t)probe>=lib.base && (uintptr_t)probe<lib.end;
-        if(genuine){ LOGI("libmonosgen attached (base=%p)",(void*)lib.base); setupMonoHooks(h); return; }
-        LOGE("dlopen('%s') returned a handle outside the resident lib's range (base=%p end=%p probe=%p) - refusing to hook a decoy copy",lib.path.c_str(),(void*)lib.base,(void*)lib.end,probe);
+        const LibInstance* match=nullptr;
+        if(probe) for(auto& inst:lib.instances) if((uintptr_t)probe>=inst.base && (uintptr_t)probe<inst.end){ match=&inst; break; }
+        if(match){ LOGI("libmonosgen attached (base=%p, %zu resident instance(s))",(void*)match->base,lib.instances.size()); setupMonoHooks(h); return; }
+        LOGE("dlopen('%s') returned a handle (probe=%p) matching none of the %zu resident instance(s) - refusing to hook a decoy copy",lib.path.c_str(),probe,lib.instances.size());
       } else {
         LOGE("dlopen('%s') failed: %s",lib.path.c_str(),dlerror());
       }
