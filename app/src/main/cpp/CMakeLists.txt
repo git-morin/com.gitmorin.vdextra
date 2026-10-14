@@ -58,7 +58,12 @@ execute_process(
           # SIGSEGV, so Nim must not install its own handlers: hijacking them turned the first
           # signal Mono would have handled itself into a Nim fatal error and a silent quit().
           -d:noSignalHandler
-          --mm:arc --threads:on
+          # Nim's own allocator keeps per-thread heaps and initialises them when it creates a
+          # thread. Every thread here belongs to Mono or Android, so that state never exists and
+          # the first allocation on one null-dereferenced its thread-local heap. -d:useMalloc
+          # hands allocation to libc, which needs no per-thread setup; atomicArc makes the
+          # refcounts safe now that objects cross those threads.
+          --mm:atomicArc --threads:on -d:useMalloc
           -d:release
           ${NIM_SRC_DIR}/vdextra.nim
   RESULT_VARIABLE NIM_RESULT
