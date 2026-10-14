@@ -10,7 +10,7 @@ proc hook(target, replace: pointer, orig: ptr pointer): bool {.discardable.} =
   dobbyHook(target, replace, orig) == 0
 
 const
-  SER_CAP = 40        ## how many Serialize calls to watch before giving up on font capture
+  SER_CAP = 40 ## how many Serialize calls to watch before giving up on font capture
 
 var
   gNoMusic*: Atomic[bool]
@@ -145,12 +145,12 @@ proc installQualitySoundHooks(): bool =
 # tiers via k=(max*s-min)/(max-min). The table hook can be bypassed by JIT inlining, so the
 # first outer call probes for it: hit -> table mode, miss -> multiply the outer input by k.
 var
-  fnMinDesk, fnMinVR: MinMax1Fn          ## originals, used only to compute k
+  fnMinDesk, fnMinVR: MinMax1Fn ## originals, used only to compute k
   origMaxDesk: MinMax1Fn
   origMaxVR: MinMax3Fn
   origDesktopBitrate: CalcBitrate2Fn
   origDesktopBitrateString: BitrateStr2Fn
-  gDeskMode: Atomic[int]                 ## 0=unknown 1=table 2=outer
+  gDeskMode: Atomic[int]        ## 0=unknown 1=table 2=outer
   origSettingsMeasured: VoidFn
   origLimitSliderSetLimit: SetFloat1Fn
   origSetHmdType, origSetActiveCodec, origSetFoveated: SetInt1Fn
@@ -158,7 +158,7 @@ var
   origSendReload: VoidFn
   gSpeedtestDone: Atomic[bool]
   gHmd, gCodec, gFov: Atomic[int32]
-  gMobileSettings: pointer               ## SharedMobileSettings instance, for full resends
+  gMobileSettings: pointer      ## SharedMobileSettings instance, for full resends
   origSerializerObject: SerializerObjectFn
   gClsUserSettings: MonoClass
   gUserSettingsPin: pointer
@@ -267,7 +267,7 @@ proc hookCaptureFov(self: pointer, v: int32) {.cdecl.} =
   if origSetFoveated != nil: origSetFoveated(self, v)
 
 proc sanitiseLimit(v: cfloat): cfloat =
-  if v != v: 0'f32          # NaN
+  if v != v: 0'f32 # NaN
   elif v < 0'f32: 0'f32
   else: v
 

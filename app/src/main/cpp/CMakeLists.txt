@@ -45,27 +45,10 @@ if(NOT NIM_LIB_DIR OR NOT EXISTS ${NIM_LIB_DIR}/nimbase.h)
   message(FATAL_ERROR "no nimbase.h under Nim's reported libpath ('${NIM_LIB_DIR}')")
 endif()
 
-# --mm:arc keeps memory management deterministic and refcounted with no stop-the-world
-# collector, which matters because our code is entered from Mono and Android threads this
-# runtime never created. --threads:on makes the refcounts and thread locals thread-safe.
+# Everything about how to compile lives in nim/nim.cfg, so a bare `nim check` and this build
+# cannot disagree.
 execute_process(
-  COMMAND ${NIM_EXE} c
-          --compileOnly:on
-          --nimcache:${NIM_CACHE}
-          --os:android --cpu:arm64 --cc:clang
-          --app:lib --noMain:on
-          # Mono drives implicit null checks, GC write barriers and thread suspension through
-          # SIGSEGV, so Nim must not install its own handlers: hijacking them turned the first
-          # signal Mono would have handled itself into a Nim fatal error and a silent quit().
-          -d:noSignalHandler
-          # Nim's own allocator keeps per-thread heaps and initialises them when it creates a
-          # thread. Every thread here belongs to Mono or Android, so that state never exists and
-          # the first allocation on one null-dereferenced its thread-local heap. -d:useMalloc
-          # hands allocation to libc, which needs no per-thread setup; atomicArc makes the
-          # refcounts safe now that objects cross those threads.
-          --mm:atomicArc --threads:on -d:useMalloc
-          -d:release
-          ${NIM_SRC_DIR}/vdextra.nim
+  COMMAND ${NIM_EXE} c --compileOnly:on --nimcache:${NIM_CACHE} ${NIM_SRC_DIR}/vdextra.nim
   RESULT_VARIABLE NIM_RESULT
   OUTPUT_VARIABLE NIM_OUTPUT
   ERROR_VARIABLE NIM_OUTPUT)
