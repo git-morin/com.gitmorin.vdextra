@@ -70,6 +70,8 @@ static MonoDomain* (*pJitThreadAttach)(MonoDomain*)=nullptr;
 static void        (*pAttachToolsThread)(void)=nullptr;
 static void*       (*pProfilerCreate)(void*)=nullptr;
 static void        (*pProfilerSetRuntimeInitCb)(void*,void(*)(void*))=nullptr;
+static void        (*pProfilerSetThreadStartedCb)(void*,void(*)(void*,uintptr_t))=nullptr;
+static void        (*pProfilerSetGcEventCb)(void*,void(*)(void*,int,uint32_t,int))=nullptr;
 
 // Global state
 static MonoDomain* gDomain=nullptr;
@@ -779,6 +781,8 @@ static void resolveMono(void* mh){
   *(void**)&pAttachToolsThread=dlsym(mh,"mono_threads_attach_tools_thread");
   *(void**)&pProfilerCreate   =dlsym(mh,"mono_profiler_create");
   *(void**)&pProfilerSetRuntimeInitCb=dlsym(mh,"mono_profiler_set_runtime_initialized_callback");
+  *(void**)&pProfilerSetThreadStartedCb=dlsym(mh,"mono_profiler_set_thread_started_callback");
+  *(void**)&pProfilerSetGcEventCb=dlsym(mh,"mono_profiler_set_gc_event_callback");
 }
 
 // This build is MonoVM-hosted (modern .NET-for-Android, confirmed via exported monovm_*
@@ -798,17 +802,29 @@ static void resolveMono(void* mh){
 // (thread subsystem, domain, GC) apparently never reaches a state any of these three
 // classic embedding APIs expect, at least not within any delay we can safely guess.
 //
-// mono_profiler_set_runtime_initialized_callback() sidesteps the whole problem: it just
-// stores a function pointer (no thread/GC state touched, so a too-late registration should
-// fail silently rather than crash), and when it does fire, Mono calls us back on its own
-// already-correctly-initialized thread - no foreign-thread attach needed at all.
+// mono_profiler_set_*_callback() sidesteps the whole problem: it just stores a function
+// pointer (no thread/GC state touched, so a too-late registration should fail silently
+// rather than crash - confirmed live: registering runtime_initialized did not crash, it
+// just never fired, meaning that one-shot boot event had already passed by attach time).
+// Mono calls these back on its own already-correctly-initialized thread, no foreign-thread
+// attach needed. runtime_initialized is one-shot at boot (too late for us); thread_started
+// and gc_event both recur throughout a live app's whole lifetime, so either should still be
+// reachable well after our late attach.
 static void onRuntimeInitialized(void* prof){
   LOGI("mono_profiler runtime_initialized callback fired");
   doSetup();
 }
+static void onThreadStarted(void* prof,uintptr_t tid){
+  LOGI("mono_profiler thread_started callback fired (tid=%zu)",(size_t)tid);
+  doSetup();
+}
+static void onGcEvent(void* prof,int event,uint32_t generation,int isSerial){
+  LOGI("mono_profiler gc_event callback fired (event=%d gen=%u)",event,generation);
+  doSetup();
+}
 
 // Install the ldstr/jit hooks (kept only as redundant safety nets), then register for the
-// runtime-initialized profiler callback, which runs doSetup() itself once it fires.
+// profiler callbacks above, any of which runs doSetup() itself once it fires.
 static void setupMonoHooks(void* handle){
   resolveMono(handle);
   if(!pLdstrChecked){ LOGE("mono_ldstr_checked not found"); return; }
@@ -822,13 +838,11 @@ static void setupMonoHooks(void* handle){
   void* on=dlsym(handle,"mono_object_new");
   if(on && hook(on,(void*)hookObjNew,(void**)&origObjNew)!=0) LOGE("object_new hook failed");
   LOGI("mono hooked");
-  if(pProfilerCreate && pProfilerSetRuntimeInitCb){
-    void* h=pProfilerCreate(nullptr);
-    if(h){
-      pProfilerSetRuntimeInitCb(h,onRuntimeInitialized);
-      LOGI("registered runtime_initialized profiler callback (handle=%p)",h);
-    } else LOGE("mono_profiler_create returned null");
-  } else LOGE("profiler API not resolved (create=%p cb=%p)",(void*)pProfilerCreate,(void*)pProfilerSetRuntimeInitCb);
+  void* h=pProfilerCreate?pProfilerCreate(nullptr):nullptr;
+  if(!h){ LOGE("mono_profiler_create failed/unresolved"); return; }
+  if(pProfilerSetRuntimeInitCb){ pProfilerSetRuntimeInitCb(h,onRuntimeInitialized); LOGI("registered runtime_initialized callback"); }
+  if(pProfilerSetThreadStartedCb){ pProfilerSetThreadStartedCb(h,onThreadStarted); LOGI("registered thread_started callback"); }
+  if(pProfilerSetGcEventCb){ pProfilerSetGcEventCb(h,onGcEvent); LOGI("registered gc_event callback"); }
 }
 
 // We find libmonosgen ourselves (polling for it, which never triggers a real load) instead
