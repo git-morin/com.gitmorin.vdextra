@@ -777,14 +777,18 @@ static void setupMonoHooks(void* handle){
 // combinations that hook corrupts unrelated register state inside the linker's genuinely
 // unmodified code, crashing the whole process on its very next (unrelated) dlopen call.
 // Never hooking do_dlopen at all - ours or the framework's - sidesteps that entirely.
+// No upper bound here: VD's own cold start (asset loading, codec/runtime init on a VR
+// headset) can comfortably exceed a minute, and a one-shot giveup with no retry means a
+// slow launch silently disables every hook for that process's entire lifetime. The thread
+// is cheap to leave sleeping, so it just keeps checking for as long as the process lives.
 static std::atomic<bool> gPollStarted{false};
 static void pollForMono(){
-  for(int i=0;i<300;i++){
+  for(int i=0;; i++){
     void* h=dlopen("libmonosgen-2.0.so", RTLD_NOW|RTLD_NOLOAD);
     if(h){ setupMonoHooks(h); return; }
+    if(i>0 && i%300==0) LOGI("still waiting for libmonosgen-2.0.so (%ds elapsed)",i/5);
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
   }
-  LOGE("libmonosgen-2.0.so never appeared after 60s, giving up");
 }
 
 // JNI exports
