@@ -187,6 +187,9 @@ proc dictLen*(): int = gDict.len
 proc translate*(text: MonoString): MonoString =
   ## The translated string for `text`, or nil to leave it alone. Any string the dictionary
   ## does not carry passes through untouched, which is what makes partial dictionaries valid.
+  # With no dictionary loaded - an English UI - there is nothing to look up, so skip the
+  # conversion entirely rather than allocating a key per set_Text call.
+  if gDict.len == 0: return nil
   let len = monoStrLen(text)
   if len <= 0 or len > 2048: return nil
   let key = utf16ToUtf8(monoStrChars(text), len)
