@@ -823,10 +823,24 @@ static void onGcEvent(void* prof,int event,uint32_t generation,int isSerial){
   doSetup();
 }
 
+// DIAGNOSTIC: ldstr/jit_exec/jit_init/run_main/object_new Dobby hook installation is
+// disabled here on purpose. Hypothesis under test: we attach within ~400ms of the library
+// becoming resident, likely racing Mono's own bootstrap (mono_jit_init et al.) rather than
+// arriving after it - Dobby-patching those functions' prologues while Mono's own init
+// thread is concurrently about to execute them could stall/corrupt that bootstrap outright
+// (same class of problem as the original do_dlopen crash: patching code concurrently with
+// its own in-flight execution), which would explain why mono_threads_inited never becomes
+// true and why every downstream signal (jit hooks, ldstr, profiler events) stayed dead - not
+// late, permanently broken. This build keeps only the soft profiler callback registrations
+// (which just store a function pointer, no code patching) to see if they start firing once
+// nothing is patching Mono's bootstrap-path functions early.
+#define VDEXTRA_DIAG_SKIP_EARLY_HOOKS 1
+
 // Install the ldstr/jit hooks (kept only as redundant safety nets), then register for the
 // profiler callbacks above, any of which runs doSetup() itself once it fires.
 static void setupMonoHooks(void* handle){
   resolveMono(handle);
+#if !VDEXTRA_DIAG_SKIP_EARLY_HOOKS
   if(!pLdstrChecked){ LOGE("mono_ldstr_checked not found"); return; }
   if(hook((void*)pLdstrChecked,(void*)hookLdstr,(void**)&origLdstr)!=0) LOGE("ldstr hook failed");
   void* je=dlsym(handle,"mono_jit_exec");
@@ -837,6 +851,9 @@ static void setupMonoHooks(void* handle){
   if(rm) hook(rm,(void*)hookRunMain,(void**)&origRunMain);
   void* on=dlsym(handle,"mono_object_new");
   if(on && hook(on,(void*)hookObjNew,(void**)&origObjNew)!=0) LOGE("object_new hook failed");
+#else
+  LOGI("DIAG: skipping ldstr/jit/object_new hook installation");
+#endif
   LOGI("mono hooked");
   void* h=pProfilerCreate?pProfilerCreate(nullptr):nullptr;
   if(!h){ LOGE("mono_profiler_create failed/unresolved"); return; }
