@@ -3,7 +3,6 @@ package com.gitmorin.vdextra;
 import android.content.pm.ApplicationInfo;
 import android.util.Log;
 
-import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -43,8 +42,6 @@ public class MainModule extends XposedModule {
             log(Log.ERROR, TAG, "native load failed", t);
         }
 
-        hookLoadLibrary();
-
         try {
             boolean useImported = readBool(PrefKeys.USE_IMPORTED_DICT, true);
             Map<String, String> dict = new LinkedHashMap<>(loadBuiltinDict(moduleApk));
@@ -62,27 +59,6 @@ public class MainModule extends XposedModule {
             log(Log.INFO, TAG, "dict=" + dict.size() + " imported=" + useImported);
         } catch (Throwable t) {
             log(Log.ERROR, TAG, "init failed", t);
-        }
-    }
-
-    // Catches libmonosgen becoming resident synchronously, on Xamarin's own bootstrap thread,
-    // right as each native library load returns - instead of racing that bootstrap from our
-    // own background poll thread (nativeInit's fallback), which consistently arrived too late
-    // for Mono's runtime to accept any foreign-thread attach we tried (see native.cpp).
-    private void hookLoadLibrary() {
-        try {
-            Method m = System.class.getDeclaredMethod("loadLibrary", String.class);
-            hook(m).intercept(chain -> {
-                Object result = chain.proceed();
-                try {
-                    nativeCheckMono();
-                } catch (Throwable t) {
-                    log(Log.ERROR, TAG, "nativeCheckMono failed", t);
-                }
-                return result;
-            });
-        } catch (Throwable t) {
-            log(Log.ERROR, TAG, "hook loadLibrary failed", t);
         }
     }
 
