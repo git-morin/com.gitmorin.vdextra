@@ -122,7 +122,7 @@
                 android:paddingTop="4dp"
                 android:paddingBottom="24dp">
 
-                <TextView style="@style/VD.Section" android:text="@string/section_dictionary"/>
+                <TextView style="@style/VD.Section" android:text="@string/section_language"/>
                 <com.google.android.material.card.MaterialCardView style="@style/VD.Card">
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -148,57 +148,6 @@
                             <TextView
                                 android:id="@+id/lang_value"
                                 style="@style/VD.Support"/>
-                        </LinearLayout>
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:orientation="horizontal"
-                            android:gravity="center_vertical"
-                            android:minHeight="56dp">
-                            <LinearLayout
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:orientation="vertical"
-                                android:paddingTop="8dp"
-                                android:paddingBottom="8dp">
-                                <TextView style="@style/VD.Title" android:text="@string/dict_use_imported_title"/>
-                                <TextView style="@style/VD.Support" android:text="@string/dict_use_imported_support"/>
-                            </LinearLayout>
-                            <com.google.android.material.materialswitch.MaterialSwitch
-                                android:id="@+id/sw_use_dict"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"/>
-                        </LinearLayout>
-                        <LinearLayout
-                            android:id="@+id/row_import"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:orientation="vertical"
-                            android:minHeight="56dp"
-                            android:gravity="center_vertical"
-                            android:background="?attr/selectableItemBackground"
-                            android:clickable="true"
-                            android:focusable="true"
-                            android:paddingTop="8dp"
-                            android:paddingBottom="8dp">
-                            <TextView style="@style/VD.Title" android:text="@string/dict_import_title"/>
-                            <TextView style="@style/VD.Support" android:text="@string/dict_import_support"/>
-                        </LinearLayout>
-                        <LinearLayout
-                            android:id="@+id/row_restore"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:orientation="vertical"
-                            android:minHeight="56dp"
-                            android:gravity="center_vertical"
-                            android:background="?attr/selectableItemBackground"
-                            android:clickable="true"
-                            android:focusable="true"
-                            android:paddingTop="8dp"
-                            android:paddingBottom="8dp">
-                            <TextView style="@style/VD.Title" android:text="@string/dict_restore_title"/>
-                            <TextView style="@style/VD.Support" android:text="@string/dict_restore_support"/>
                         </LinearLayout>
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
