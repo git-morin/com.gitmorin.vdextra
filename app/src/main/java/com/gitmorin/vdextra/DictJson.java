@@ -10,11 +10,9 @@ import org.json.JSONObject;
 
 import lombok.experimental.UtilityClass;
 
-/** Reads and parses the {@code key -> translation} JSON dictionary format used by both the builtin and imported dictionaries. */
 @UtilityClass
 class DictJson {
 
-    /** @return the entry count, 0 for a null/empty dictionary, or -1 if {@code json} isn't valid. */
     int count(String json) {
         if (json == null) return 0;
         try {
@@ -25,7 +23,6 @@ class DictJson {
         } catch (Throwable t) { return -1; }
     }
 
-    /** Parses {@code json} into {@code out}, silently leaving it unchanged if {@code json} isn't valid. */
     void parseInto(String json, Map<String, String> out) {
         try {
             JSONObject o = new JSONObject(json);

@@ -11,13 +11,6 @@ import android.content.SharedPreferences;
 import android.os.Build;
 import android.util.Log;
 
-/**
- * Checks for an update when Virtual Desktop starts, on behalf of the module running inside it.
- *
- * <p>The module broadcasts rather than checking in place: the work would otherwise happen under
- * Virtual Desktop's identity, so the notification would appear to come from Virtual Desktop and
- * would need Virtual Desktop to hold the notification permission.
- */
 public class UpdateCheckReceiver extends BroadcastReceiver {
 
     static final String ACTION = "com.gitmorin.vdextra.CHECK_FOR_UPDATE";
@@ -35,23 +28,19 @@ public class UpdateCheckReceiver extends BroadcastReceiver {
         SharedPreferences prefs = context.getSharedPreferences(PrefKeys.NAME, Context.MODE_PRIVATE);
         long now = System.currentTimeMillis();
         long last = prefs.getLong(PrefKeys.LAST_UPDATE_CHECK, 0L);
-        // Virtual Desktop can be restarted repeatedly while testing, and GitHub rate-limits
-        // unauthenticated callers, so one check every few hours is plenty.
+
         if (last > 0 && now - last < MIN_INTERVAL_MS && now >= last) {
             Log.i(TAG, "update check skipped, last was " + ((now - last) / 60000) + " min ago");
             return;
         }
         prefs.edit().putLong(PrefKeys.LAST_UPDATE_CHECK, now).apply();
 
-        // Network cannot run on the receiver's thread, and the result arrives long after
-        // onReceive would have returned, so hold the broadcast open.
         final PendingResult pending = goAsync();
         new Thread(() -> {
             try {
                 check(context);
             } catch (Throwable t) {
-                // Not surfaced to the user - the Options screen is where a check they asked for
-                // reports errors - but it has to be greppable, or this path is unobservable.
+
                 Log.w(TAG, "background update check failed", t);
             } finally {
                 pending.finish();
