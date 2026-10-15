@@ -103,7 +103,7 @@ proc Java_com_gitmorin_vdextra_MainModule_nativeSetQuality(
 proc Java_com_gitmorin_vdextra_MainModule_nativeSetBitrate(
     env, thiz: pointer, extend, unlock: bool, scale: cfloat) {.exportc, cdecl, dynlib.} =
   var s = float32(scale)
-  if not (s >= 1'f32): s = 1'f32      # also catches NaN
+  if not (s >= 1'f32): s = 1'f32 # also catches NaN
   if s > 3'f32: s = 3'f32
   gBitrateExtend.store(extend)
   gBitrateUnlock.store(unlock)

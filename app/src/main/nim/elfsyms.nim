@@ -89,7 +89,7 @@ proc elfSymsAt*(base: uint64): ElfSyms =
     of DT_STRTAB: strtab = cast[ptr UncheckedArray[char]](fix(d.val))
     of DT_SYMTAB: symtab = cast[pointer](fix(d.val))
     of DT_SYMENT: syment = int(d.val)
-    of DT_HASH:   count = int(cast[ptr UncheckedArray[uint32]](fix(d.val))[1]) # nchain == nsyms
+    of DT_HASH: count = int(cast[ptr UncheckedArray[uint32]](fix(d.val))[1]) # nchain == nsyms
     of DT_GNU_HASH: gnu = cast[ptr UncheckedArray[uint32]](fix(d.val))
     else: discard
     d = cast[ptr Elf64Dyn](cast[uint64](d) + uint64(sizeof(Elf64Dyn)))
@@ -143,7 +143,8 @@ proc residentInstances*(soname: string): seq[LibInstance] =
   except CatchableError:
     discard
 
-proc findLiveImage*(soname: string, readyProbe: proc(s: ElfSyms): bool {.nimcall, gcsafe.}): ElfSyms =
+proc findLiveImage*(soname: string, readyProbe: proc(s: ElfSyms): bool {.nimcall,
+    gcsafe.}): ElfSyms =
   ## dlopen cannot reach a library in another linker namespace. bionic's already-loaded check
   ## (find_loaded_library_by_realpath) is scoped to the *calling* namespace, and this module is
   ## injected outside Virtual Desktop's per-APK ClassLoader namespace while libmonosgen is one

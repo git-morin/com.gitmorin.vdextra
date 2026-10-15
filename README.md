@@ -42,6 +42,11 @@ export JAVA_HOME=/path/to/jdk-17
 ./gradlew :app:assembleRelease
 ```
 
+`make help` lists the development shortcuts. Without an Android SDK to hand, compiling happens
+in CI, and `make ship` is the whole loop: push, build, download the APK, install it and restart
+Virtual Desktop. `make lint` type-checks the Nim against the real android target and checks
+formatting, neither of which needs the SDK.
+
 The native half is Nim plus a small C shim. Nim is not a second cross-compiler here — CMake runs
 it as a code generator that emits C, which the NDK's clang then compiles, so one toolchain stays
 responsible for the ABI, sysroot and flags. CMake invokes `nim` at configure time because it

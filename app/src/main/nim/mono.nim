@@ -55,11 +55,11 @@ var
 var
   gCorlib*: MonoImage
   gDomain*: MonoDomain
-  gClsOff*: MonoClass          ## OfflineRasterizedSpriteFont, for the font-class walk
-  gDictField*: MonoField       ## its CharacterToGlyph field
-  getSizeFn*: GetSizeFn        ## SpriteFont::get_Size
+  gClsOff*: MonoClass    ## OfflineRasterizedSpriteFont, for the font-class walk
+  gDictField*: MonoField ## its CharacterToGlyph field
+  getSizeFn*: GetSizeFn  ## SpriteFont::get_Size
 
-const FULL* = 1000             ## glyph count we treat as full coverage
+const FULL* = 1000 ## glyph count we treat as full coverage
 
 var
   gDict: Table[string, string]
