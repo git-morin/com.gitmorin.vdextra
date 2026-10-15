@@ -1,7 +1,7 @@
 SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 
-DEVICE ?= 192.168.8.211:5555
+DEVICE ?=
 VD_PKG := VirtualDesktop.Quest
 MODULE := com.gitmorin.vdextra
 REPO := git-morin/vdextra
@@ -13,9 +13,9 @@ BRANCH = $(shell git rev-parse --abbrev-ref HEAD)
 ADB := adb -s $(DEVICE)
 CLANG_FORMAT_VERSION := 23.1.3
 
-### Without this, `clean` would be considered satisfied by the directory of the same name.
-.PHONY: help help-more lint check fmt fmt-check build apk install run ship connect device \
-        logs logs-dump tombstones tombstones-clean clean
+.PHONY: help help-more lint check fmt fmt-check build apk install run ship \
+        connect device require-device logs logs-dump tombstones \
+        tombstones-clean clean
 
 lint: check fmt-check ## Type-check the Nim and check formatting (needs no Android SDK)
 
@@ -69,14 +69,19 @@ apk: ## Download the APK built for this branch
 	gh run download "$$id" -R $(REPO) -D $(APK_DIR) -p 'vdextra-*'; \
 	find $(APK_DIR) -name '*.apk'
 
-install: ## Install the downloaded APK on the headset
+### Deliberately no default: a headset address does not belong in the repository. Only the
+### targets that talk to the device require it, so lint and build work without it.
+require-device:
+	@test -n "$(DEVICE)" || { echo "DEVICE is not set: export DEVICE=<ip>:<port>"; exit 1; }
+
+install: require-device ## Install the downloaded APK on the headset
 	@set -euo pipefail; \
 	apk=$$(find $(APK_DIR) -name '*.apk' | head -1); \
 	if [ -z "$$apk" ]; then echo "no APK - run 'make apk' first"; exit 1; fi; \
 	$(MAKE) --no-print-directory connect; \
 	$(ADB) install -r "$$apk"
 
-run: ## Restart Virtual Desktop
+run: require-device ## Restart Virtual Desktop
 	@$(ADB) shell am force-stop $(VD_PKG)
 	@$(ADB) shell monkey -p $(VD_PKG) -c android.intent.category.LAUNCHER 1 >/dev/null
 	@echo "launched $(VD_PKG)"
@@ -85,7 +90,7 @@ ship: build apk install run ## Build in CI, install on the headset and restart V
 
 ### The link drops whenever the headset idles, and a stale connection reports `device` while
 ### every command fails, so disconnect first and keep trying until a shell actually answers.
-connect: ## Reconnect wireless adb to the headset
+connect: require-device ## Reconnect wireless adb to the headset
 	@for i in $$(seq 1 10); do \
 	  adb disconnect $(DEVICE) >/dev/null 2>&1 || true; \
 	  adb connect $(DEVICE) >/dev/null 2>&1 || true; \
@@ -93,23 +98,23 @@ connect: ## Reconnect wireless adb to the headset
 	done; \
 	echo "could not reach $(DEVICE) - is the headset awake?"; exit 1
 
-device: # Show the device, Virtual Desktop's pid and the installed module version
+device: require-device # Show the device, Virtual Desktop's pid and the installed module version
 	@$(ADB) shell getprop ro.product.model
 	@echo "Virtual Desktop pid: $$($(ADB) shell pidof $(VD_PKG) | tr -dc '0-9')"
 	@$(ADB) shell dumpsys package $(MODULE) 2>/dev/null | grep -m1 versionName || true
 
-logs: ## Follow the VDExtra log
+logs: require-device ## Follow the VDExtra log
 	@$(ADB) logcat -s VDExtra
 
 ### Never pass -t here: it truncates before the tag filter is applied, so it silently reports
 ### nothing at all.
-logs-dump: # Dump the VDExtra log so far
+logs-dump: require-device # Dump the VDExtra log so far
 	@$(ADB) logcat -d -s VDExtra
 
-tombstones: # List native crash dumps
+tombstones: require-device # List native crash dumps
 	@$(ADB) shell su -c 'ls -lt /data/tombstones/ 2>/dev/null' || echo "none"
 
-tombstones-clean: # Delete native crash dumps, so the next crash is unambiguous
+tombstones-clean: require-device # Delete native crash dumps, so the next crash is unambiguous
 	@$(ADB) shell su -c 'rm -f /data/tombstones/*'
 	@echo "cleared"
 
