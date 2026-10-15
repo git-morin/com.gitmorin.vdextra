@@ -4,6 +4,7 @@
   <!-- Needed to install the APK the in-app updater downloads; the user still gets the system
        install prompt, and must allow this app to install packages. -->
   <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
   <queries>
     <package android:name="VirtualDesktop.Quest" />
@@ -18,6 +19,17 @@
         android:name="io.github.libxposed.service.XposedProvider"
         android:authorities="com.gitmorin.vdextra.XposedService"
         android:exported="true" />
+    <!-- Exported because the sender is the module running inside Virtual Desktop's process,
+         under Virtual Desktop's UID, so a non-exported receiver would reject it. A permission
+         guard cannot help for the same reason. The exposure is small and bounded: the only
+         effect is a throttled update check and a notification, with no data passed either way. -->
+    <receiver
+        android:name=".UpdateCheckReceiver"
+        android:exported="true">
+      <intent-filter>
+        <action android:name="com.gitmorin.vdextra.CHECK_FOR_UPDATE" />
+      </intent-filter>
+    </receiver>
     <activity
         android:name=".MainActivity"
         android:exported="true"
