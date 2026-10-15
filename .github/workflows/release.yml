@@ -2,74 +2,139 @@ name: Build & Release
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, dev ]
   workflow_dispatch:
 
 permissions:
   contents: write
 
+env:
+  NIM_VERSION: '2.2.12'
+
 jobs:
-  check:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Nim
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Type-check Nim
+        run: nim check --hints:off app/src/main/nim/vdextra.nim
+
+      - name: Check Nim formatting
+        run: |
+          fail=0
+          tmp=$(mktemp -d)
+          for f in app/src/main/nim/*.nim; do
+            cp "$f" "$tmp/$(basename "$f")"
+            nimpretty --maxLineLen:100 --out:"$tmp/$(basename "$f")" "$f"
+            if ! diff -u "$f" "$tmp/$(basename "$f")"; then
+              echo "::error file=$f::not formatted (run 'make fmt')"
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - name: Check C formatting
+        run: clang-format --dry-run -Werror app/src/main/cpp/init.c
+
+  version:
+    needs: lint
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.version.outputs.name }}
-      release: ${{ steps.version.outputs.release }}
-      buildname: ${{ steps.version.outputs.buildname }}
+      name: ${{ steps.v.outputs.name }}
+      code: ${{ steps.v.outputs.code }}
+      tag: ${{ steps.v.outputs.tag }}
+      channel: ${{ steps.v.outputs.channel }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Check version upgrade
-        id: version
+      # The version is derived from tags, never from a value committed in the tree: a job that
+      # commits a bump to main would only retrigger itself.
+      - name: Compute version
+        id: v
         run: |
-          name=$(grep -oP 'versionName\s+"\K[^"]+' app/build.gradle)
-          sha6=${GITHUB_SHA:0:6}
-          echo "name=$name" >> "$GITHUB_OUTPUT"
-          if git rev-parse -q --verify "refs/tags/v$name" >/dev/null; then
-            echo "Tag v$name already exists -> build only ($sha6)."
-            echo "release=false" >> "$GITHUB_OUTPUT"
-            echo "buildname=$sha6" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+
+          # Highest stable tag. v1.0 predates the 3-part scheme, so normalise to major.minor.patch.
+          stable_tag=$(git tag -l 'v*' | grep -v -- '-dev\.' | sort -V | tail -1 || true)
+          if [ -z "$stable_tag" ]; then
+            base="0.0.0"; range=""
           else
-            echo "Tag v$name not found -> release v$name."
-            echo "release=true" >> "$GITHUB_OUTPUT"
-            echo "buildname=$name" >> "$GITHUB_OUTPUT"
+            base=$(echo "${stable_tag#v}" | awk -F. '{printf "%d.%d.%d", $1, $2, ($3=="" ? 0 : $3)}')
+            range="$stable_tag..HEAD"
+          fi
+          major=$(echo "$base" | cut -d. -f1)
+          minor=$(echo "$base" | cut -d. -f2)
+          patch=$(echo "$base" | cut -d. -f3)
+
+          subjects=$(git log --pretty=%s ${range:+$range})
+          bodies=$(git log --pretty=%B ${range:+$range})
+
+          # Conventional commits: a `!` or BREAKING CHANGE wins, then feat, otherwise a patch.
+          if echo "$subjects" | grep -qE '^[a-z]+(\([^)]*\))?!:' || echo "$bodies" | grep -q 'BREAKING CHANGE'; then
+            major=$((major + 1)); minor=0; patch=0; bump=major
+          elif echo "$subjects" | grep -qE '^feat(\([^)]*\))?:'; then
+            minor=$((minor + 1)); patch=0; bump=minor
+          else
+            patch=$((patch + 1)); bump=patch
+          fi
+          next="$major.$minor.$patch"
+
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
+            channel=stable
+            name="$next"
+            prerelease=false
+            # Stable sorts above every dev build of the same version.
+            serial=99
+          else
+            channel=dev
+            n=$(git rev-list --count ${range:+$range} 2>/dev/null || echo 1)
+            [ "$n" -lt 1 ] && n=1
+            name="$next-dev.$n"
+            prerelease=true
+            serial=$n
+            [ "$serial" -gt 98 ] && serial=98
           fi
 
-  build:
-    needs: check
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
+          code=$((major * 1000000 + minor * 10000 + patch * 100 + serial))
 
-      - name: Generate changelog
-        if: needs.check.outputs.release == 'true'
-        run: |
-          prev=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
           {
-            if [ -n "$prev" ]; then
-              echo "更新内容："
-              echo
-              git log "$prev"..HEAD --pretty=format:'- %s'
-            else
-              echo "首次发布"
-            fi
+            echo "name=$name"
+            echo "code=$code"
+            echo "tag=v$name"
+            echo "channel=$channel"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### $name ($channel)"
             echo
+            echo "Bump: $bump, from ${stable_tag:-no previous tag}"
+            echo
+            git log --pretty='- %s' ${range:+$range}
           } > changelog.md
-          echo '--- changelog ---'
           cat changelog.md
 
-      - name: Use commit hash as versionName (no version bump)
-        if: needs.check.outputs.release != 'true'
-        run: |
-          sed -i -E 's/^[[:space:]]*versionName[[:space:]]+.*$/    versionName "${{ needs.check.outputs.buildname }}"/' app/build.gradle
-          grep -n 'versionName' app/build.gradle
+      - uses: actions/upload-artifact@v4
+        with:
+          name: changelog
+          path: changelog.md
+
+  build:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -77,10 +142,9 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # ubuntu-latest runners ship with the Android SDK/cmdline-tools preinstalled but not on
-      # PATH; android-actions/setup-android@v3 used to add it, but it also tries to install the
-      # long-removed legacy 'tools' package and fails, so we point PATH at the preinstalled
-      # cmdline-tools ourselves instead.
+      # ubuntu-latest ships the Android SDK/cmdline-tools preinstalled but not on PATH;
+      # android-actions/setup-android@v3 used to add it, but it also tries to install the
+      # long-removed legacy 'tools' package and fails, so point PATH at it ourselves.
       - name: Point PATH at the preinstalled Android SDK
         run: |
           echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
@@ -92,17 +156,13 @@ jobs:
           yes | sdkmanager --licenses > /dev/null
           sdkmanager --install "platforms;android-34" "build-tools;34.0.0" "ndk;27.0.12077973" "cmake;3.22.1"
 
-      # Part of the native code is Nim, which CMake invokes as a code generator (it emits C that
-      # the NDK's clang then compiles - see src/main/cpp/CMakeLists.txt). Pinned so a Nim release
-      # cannot silently change codegen under us.
+      # Part of the native code is Nim, which CMake runs as a code generator: it emits C that the
+      # NDK's clang compiles. Pinned so a Nim release cannot change codegen under us.
       - name: Set up Nim
         uses: jiro4989/setup-nim-action@v2
         with:
-          nim-version: '2.2.12'
+          nim-version: ${{ env.NIM_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Show Nim version
-        run: nim --version | head -1
 
       - name: Decode signing keystore
         env:
@@ -115,30 +175,76 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+        run: |
+          ./gradlew :app:assembleRelease --no-daemon --stacktrace \
+            -PvdVersionName='${{ needs.version.outputs.name }}' \
+            -PvdVersionCode='${{ needs.version.outputs.code }}'
 
-      - name: Show built APK versionName
+      - name: Show built APK identity
         run: |
           APK=app/build/outputs/apk/release/app-release.apk
           AAPT=$(ls "${ANDROID_HOME:-$ANDROID_SDK_ROOT}"/build-tools/*/aapt 2>/dev/null | head -1)
-          if [ -n "$AAPT" ]; then
-            "$AAPT" dump badging "$APK" | grep -m1 '^package:'
-          else
-            echo "aapt not found, skip"
+          if [ -n "$AAPT" ]; then "$AAPT" dump badging "$APK" | grep -m1 '^package:'; fi
+
+      - name: Rename APK to carry its version
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk \
+             "dist/vdextra-${{ needs.version.outputs.name }}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vdextra-${{ needs.version.outputs.name }}
+          path: dist/*.apk
+
+  release:
+    needs: [ version, build ]
+    # Only a real push to main or dev publishes. A manual dispatch just leaves an artifact,
+    # which is what the local build-and-install loop wants.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: vdextra-${{ needs.version.outputs.name }}
+          path: dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: changelog
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.version.outputs.tag }}
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "$TAG already published, nothing to do"
+            exit 0
           fi
+          flags=(--title "$TAG" --notes-file changelog.md --target "$GITHUB_SHA")
+          [ "$PRERELEASE" = "true" ] && flags+=(--prerelease)
+          gh release create "$TAG" "${flags[@]}" dist/*.apk
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: vdextra-${{ needs.check.outputs.buildname }}
-          path: app/build/outputs/apk/release/app-release.apk
-
-      - name: Publish release
-        if: needs.check.outputs.release == 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ needs.check.outputs.version }}
-          name: v${{ needs.check.outputs.version }}
-          body_path: changelog.md
-          files: app/build/outputs/apk/release/app-release.apk
-          fail_on_unmatched_files: true
+      # The dev channel is a moving target, so keep only the newest prerelease and let its tag
+      # go with it; otherwise every push to dev leaves a release behind forever.
+      - name: Prune superseded dev prereleases
+        if: needs.version.outputs.channel == 'dev'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          gh release list --limit 100 --json tagName,isPrerelease \
+            -q '.[] | select(.isPrerelease) | .tagName' \
+          | grep -- '-dev\.' | grep -vx "$TAG" \
+          | while read -r old; do
+              echo "deleting superseded $old"
+              gh release delete "$old" --yes --cleanup-tag
+            done
