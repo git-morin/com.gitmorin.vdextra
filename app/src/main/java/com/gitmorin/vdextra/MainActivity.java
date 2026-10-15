@@ -120,8 +120,23 @@ public class MainActivity extends AppCompatActivity {
         rowUpdate.setOnClickListener(v -> onUpdateRowClicked());
 
         ensureServiceRegistered();
+        askForNotificationsIfNeeded();
         showPage(0);
         refresh();
+    }
+
+    /**
+     * The launch-triggered update notification is posted from a receiver, which cannot ask for
+     * anything, so the permission has to be in hand before Virtual Desktop ever starts. Granted
+     * at install time below API 33, where this is a no-op.
+     */
+    private void askForNotificationsIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return;
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                == android.content.pm.PackageManager.PERMISSION_GRANTED) return;
+        try {
+            requestPermissions(new String[]{ android.Manifest.permission.POST_NOTIFICATIONS }, 1);
+        } catch (Throwable ignored) {}
     }
 
     @Override protected void onResume() {
