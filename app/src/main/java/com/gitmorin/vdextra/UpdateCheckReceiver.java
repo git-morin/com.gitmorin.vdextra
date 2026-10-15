@@ -9,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
+import android.util.Log;
 
 /**
  * Checks for an update when Virtual Desktop starts, on behalf of the module running inside it.
@@ -20,6 +21,8 @@ import android.os.Build;
 public class UpdateCheckReceiver extends BroadcastReceiver {
 
     static final String ACTION = "com.gitmorin.vdextra.CHECK_FOR_UPDATE";
+
+    private static final String TAG = "VDExtra";
 
     private static final String CHANNEL_ID = "updates";
     private static final int NOTIFICATION_ID = 1;
@@ -34,7 +37,10 @@ public class UpdateCheckReceiver extends BroadcastReceiver {
         long last = prefs.getLong(PrefKeys.LAST_UPDATE_CHECK, 0L);
         // Virtual Desktop can be restarted repeatedly while testing, and GitHub rate-limits
         // unauthenticated callers, so one check every few hours is plenty.
-        if (last > 0 && now - last < MIN_INTERVAL_MS && now >= last) return;
+        if (last > 0 && now - last < MIN_INTERVAL_MS && now >= last) {
+            Log.i(TAG, "update check skipped, last was " + ((now - last) / 60000) + " min ago");
+            return;
+        }
         prefs.edit().putLong(PrefKeys.LAST_UPDATE_CHECK, now).apply();
 
         // Network cannot run on the receiver's thread, and the result arrives long after
@@ -43,9 +49,10 @@ public class UpdateCheckReceiver extends BroadcastReceiver {
         new Thread(() -> {
             try {
                 check(context);
-            } catch (Throwable ignored) {
-                // A failed background check is not worth telling anyone about; the Options
-                // screen reports failures when the user asks for a check themselves.
+            } catch (Throwable t) {
+                // Not surfaced to the user - the Options screen is where a check they asked for
+                // reports errors - but it has to be greppable, or this path is unobservable.
+                Log.w(TAG, "background update check failed", t);
             } finally {
                 pending.finish();
             }
@@ -57,13 +64,15 @@ public class UpdateCheckReceiver extends BroadcastReceiver {
                 context.getSharedPreferences(PrefKeys.NAME, Context.MODE_PRIVATE)
                         .getString(PrefKeys.UPDATE_CHANNEL, Updates.STABLE));
         Updates.Release r = Updates.latest(channel);
-        if (r == null) return;
-
         String current = context.getPackageManager()
                 .getPackageInfo(context.getPackageName(), 0).versionName;
+        Log.i(TAG, "update check: channel=" + channel + " installed=" + current
+                + " latest=" + (r == null ? "none" : r.version));
+        if (r == null) return;
         if (Updates.compareVersions(r.version, current) <= 0) return;
 
         notifyAvailable(context, r.version);
+        Log.i(TAG, "posted update notification for " + r.version);
     }
 
     private void notifyAvailable(Context context, String version) {
@@ -93,8 +102,8 @@ public class UpdateCheckReceiver extends BroadcastReceiver {
 
         try {
             nm.notify(NOTIFICATION_ID, n);
-        } catch (Throwable ignored) {
-            // Notifications may simply be denied; nothing to recover.
+        } catch (Throwable t) {
+            Log.w(TAG, "could not post notification", t);
         }
     }
 }
