@@ -25,6 +25,22 @@
     <string name="lang_entry_format">%1$s · %2$d entries</string>
     <string name="toast_language_format">UI language set to %1$s. Restart Virtual Desktop to apply.</string>
 
+    <string name="section_updates">Updates</string>
+    <string name="update_channel_title">Update channel</string>
+    <string name="update_channel_stable">Stable</string>
+    <string name="update_channel_dev">Dev (prereleases)</string>
+    <string name="dialog_channel_title">Select update channel</string>
+    <string name="update_check_title">Check for updates</string>
+    <string name="update_current_format">Installed %1$s</string>
+    <string name="update_checking">Checking…</string>
+    <string name="update_up_to_date">Up to date</string>
+    <string name="update_available_format">%1$s available - tap to install</string>
+    <string name="update_failed_format">Check failed: %1$s</string>
+    <string name="update_downloading">Downloading…</string>
+    <string name="update_installing">Handing over to the installer…</string>
+    <string name="update_needs_permission">Allow VDExtra to install apps, then try again</string>
+    <string name="update_restart_hint">Updated. Force-stop and restart Virtual Desktop to load it.</string>
+
     <string name="section_sound">Sound</string>
     <string name="sound_no_music_title">Disable background music</string>
     <string name="sound_no_music_support">Stop auto-playing music while not connected</string>
