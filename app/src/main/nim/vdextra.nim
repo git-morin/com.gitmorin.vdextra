@@ -1,5 +1,6 @@
 import std/[strutils, atomics, os]
-import vdlog, elfsyms, mono, hooks
+import vdlog, elfsyms, mono
+import hooks/[setup, triggers]
 
 const MONO_SONAME = "libmonosgen-2.0.so"
 
@@ -43,20 +44,21 @@ proc tryAttachMono(): bool =
   true
 
 proc pollForMono() {.thread.} =
-  sleep(2000)
-  var i = 0
-  while not tryAttachMono():
-    if i > 0 and i mod 300 == 0:
-      logI("still waiting for a live libmonosgen-2.0.so runtime (" & $(i div 5 + 2) & "s elapsed)")
-    sleep(200)
-    inc i
-  i = 0
-  while not gSetup.load():
-    doSetup()
-    if gSetup.load(): break
-    if i > 0 and i mod 25 == 0: logI("background doSetup retry #" & $i)
-    sleep(500)
-    inc i
+  {.cast(gcsafe).}:
+    sleep(2000)
+    var i = 0
+    while not tryAttachMono():
+      if i > 0 and i mod 300 == 0:
+        logI("still waiting for a live libmonosgen-2.0.so runtime (" & $(i div 5 + 2) & "s elapsed)")
+      sleep(200)
+      inc i
+    i = 0
+    while not gSetup.load():
+      doSetup()
+      if gSetup.load(): break
+      if i > 0 and i mod 25 == 0: logI("background doSetup retry #" & $i)
+      sleep(500)
+      inc i
 
 proc Java_com_gitmorin_vdextra_MainModule_nativeInit(env, thiz: pointer)
     {.exportc, cdecl, dynlib.} =
@@ -76,29 +78,30 @@ proc Java_com_gitmorin_vdextra_MainModule_nativeCheckMono(env, thiz: pointer): b
 
 proc Java_com_gitmorin_vdextra_MainModule_nativeSetNoMusic(env, thiz: pointer, disable: bool)
     {.exportc, cdecl, dynlib.} =
-  gNoMusic.store(disable)
+  musicFeature.disabled.store(disable)
   logI("noMusic=" & $disable)
 
 proc Java_com_gitmorin_vdextra_MainModule_nativeSetQuality(
     env, thiz: pointer, enable: bool, mask: int32) {.exportc, cdecl, dynlib.} =
-  gQualitySound.store(enable)
-  gQualityMask.store(int(mask) and 0x7F)
-  logI("quality enable=" & $enable & " mask=" & $gQualityMask.load())
+  cueSoundsFeature.enabled.store(enable)
+  cueSoundsFeature.mask.store(int(mask) and 0x7F)
+  logI("quality enable=" & $enable & " mask=" & $cueSoundsFeature.mask.load())
 
 proc Java_com_gitmorin_vdextra_MainModule_nativeSetBitrate(
     env, thiz: pointer, extend, unlock: bool, scale: cfloat) {.exportc, cdecl, dynlib.} =
   var s = float32(scale)
   if not (s >= 1'f32): s = 1'f32 # also catches NaN
   if s > 3'f32: s = 3'f32
-  gBitrateExtend.store(extend)
-  gBitrateUnlock.store(unlock)
-  gBitrateScale.store(s)
-  logI("bitrate extend=" & $extend & " unlock=" & $unlock & " scale=" & formatFloat(s, ffDecimal, 2))
+  bitrateFeature.extend.store(extend)
+  bitrateFeature.unlock.store(unlock)
+  bitrateFeature.scale.store(s)
+  logI("bitrateFeature extend=" & $extend & " unlock=" & $unlock & " scale=" & formatFloat(s,
+      ffDecimal, 2))
 
 proc Java_com_gitmorin_vdextra_MainModule_nativeSetForceLan(env, thiz: pointer, on: bool)
     {.exportc, cdecl, dynlib.} =
-  gForceLan.store(on)
-  logI("forceLan=" & $on)
+  forceLanFeature.enabled.store(on)
+  logI("forceLanFeature=" & $on)
 
 proc vdDictPut(k, v: cstring) {.exportc: "vdDictPut", cdecl, dynlib.} =
   dictPut($k, $v)
