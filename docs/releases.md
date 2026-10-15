@@ -33,6 +33,17 @@ takes serial `99` and a dev build its commit count. So every dev build of a vers
 its stable release — stable always installs over dev — and the whole sequence stays monotonic,
 which is what lets Android treat each build as an upgrade of the last.
 
+## The updater needs public releases
+
+The app reads the GitHub releases API anonymously, so the repository has to be public for any
+of it to work. The releases endpoint answers **404**, not 403, for a repository the caller
+cannot see, so against a private repo the check reports "releases are not public (HTTP 404)"
+and the launch-triggered check logs the same under the `VDExtra` tag.
+
+Shipping a token inside the APK is not an option - anyone can unzip it - so if the source has
+to stay private the alternative is publishing a manifest and the APK to a separate public
+location and pointing the app at that.
+
 ## Updating from inside the app
 
 **Options → Updates** carries the channel picker and a check row. The first tap checks the
