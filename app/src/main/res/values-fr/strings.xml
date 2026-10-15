@@ -1,0 +1,63 @@
+<resources>
+    <string name="app_name">VDExtra</string>
+    <string name="app_description">Module d\'amélioration pour Virtual Desktop</string>
+
+    <string name="nav_home">Accueil</string>
+    <string name="nav_options">Options</string>
+
+    <string name="status_active">Actif</string>
+    <string name="status_inactive">Inactif</string>
+    <string name="status_inactive_hint">Activez le module dans LSPosed, puis forcez l\'arrêt et relancez Virtual Desktop</string>
+
+    <string name="info_module_version">Version du module</string>
+    <string name="info_vd_version">Version de Virtual Desktop</string>
+    <string name="version_not_installed">Non installé</string>
+
+    <string name="dialog_sounds_title">Choisir les sons à couper</string>
+    <string name="dialog_scale_title">Multiplicateur de débit</string>
+    <string name="action_done">Terminé</string>
+    <string name="scale_hint">Multiplicateur de débit (1 - 3)</string>
+
+    <string name="section_language">Langue</string>
+    <string name="dict_language_title">Langue de l\'interface</string>
+    <string name="dialog_language_title">Choisir la langue de l\'interface</string>
+    <string name="lang_off">Anglais (aucune traduction)</string>
+    <string name="lang_entry_format">%1$s · %2$d entrées</string>
+    <string name="toast_language_format">Langue de l\'interface définie sur %1$s. Relancez Virtual Desktop pour appliquer.</string>
+
+    <string name="section_updates">Mises à jour</string>
+    <string name="update_channel_title">Canal de mise à jour</string>
+    <string name="update_channel_stable">Stable</string>
+    <string name="update_channel_dev">Dev (préversions)</string>
+    <string name="dialog_channel_title">Choisir le canal de mise à jour</string>
+    <string name="update_check_title">Rechercher des mises à jour</string>
+    <string name="update_current_format">%1$s installée</string>
+    <string name="update_checking">Recherche…</string>
+    <string name="update_up_to_date">À jour</string>
+    <string name="update_available_format">%1$s disponible - appuyez pour installer</string>
+    <string name="update_failed_format">Échec de la recherche : %1$s</string>
+    <string name="update_downloading">Téléchargement…</string>
+    <string name="update_installing">Transfert à l\'installateur…</string>
+    <string name="update_needs_permission">Autorisez VDExtra à installer des applications, puis réessayez</string>
+    <string name="update_restart_hint">Mise à jour effectuée. Forcez l\'arrêt et relancez Virtual Desktop pour la charger.</string>
+
+    <string name="notif_channel_updates">Mise à jour disponible</string>
+    <string name="notif_update_title">Mise à jour de VDExtra disponible</string>
+    <string name="notif_update_text_format">%1$s est prête à être installée</string>
+
+    <string name="section_sound">Son</string>
+    <string name="sound_no_music_title">Désactiver la musique de fond</string>
+    <string name="sound_no_music_support">Empêcher la lecture automatique de musique hors connexion</string>
+    <string name="sound_no_perf_title">Désactiver les sons de performance</string>
+    <string name="sound_no_perf_support">Appui long pour activer chaque son individuellement</string>
+
+    <string name="section_bitrate">Débit</string>
+    <string name="bitrate_extend_title">Étendre la plage de débit</string>
+    <string name="bitrate_extend_support">Appui long pour définir le multiplicateur (1-3)</string>
+    <string name="bitrate_unlock_title">Supprimer la limite de débit du test de vitesse</string>
+    <string name="bitrate_unlock_support">Ignorer le plafond de bande passante appliqué après le test de vitesse</string>
+
+    <string name="section_network">Réseau</string>
+    <string name="network_force_lan_title">Forcer la découverte réseau local</string>
+    <string name="network_force_lan_support">Afficher les PC locaux même lorsque le serveur est inaccessible</string>
+</resources>
