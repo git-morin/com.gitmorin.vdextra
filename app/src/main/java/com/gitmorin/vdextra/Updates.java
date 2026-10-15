@@ -154,9 +154,13 @@ class Updates {
     private String get(String url) throws IOException {
         HttpURLConnection c = open(url);
         try {
-            if (c.getResponseCode() / 100 != 2) {
-                throw new IOException("GitHub returned HTTP " + c.getResponseCode());
+            int code = c.getResponseCode();
+            // The releases endpoint answers 404 rather than 403 for a repository the caller
+            // cannot see, so an anonymous check against a private repo lands here.
+            if (code == HttpURLConnection.HTTP_NOT_FOUND) {
+                throw new IOException("releases are not public (HTTP 404)");
             }
+            if (code / 100 != 2) throw new IOException("GitHub returned HTTP " + code);
             try (InputStream in = c.getInputStream()) {
                 return new String(DictJson.readAll(in), StandardCharsets.UTF_8);
             }
