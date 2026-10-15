@@ -1,8 +1,6 @@
 SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 
-### There is no local Android SDK, so compiling happens in CI. `make ship` is the whole loop.
-
 DEVICE ?= 192.168.8.211:5555
 VD_PKG := VirtualDesktop.Quest
 MODULE := com.gitmorin.vdextra
