@@ -29,8 +29,8 @@ proc hookSetFont(tb: pointer, newFont: MonoObject) {.cdecl.} =
       var needsFull = false
       if textFeature.getText != nil:
         let s = textFeature.getText(tb)
-        needsFull = hasCjk(monoStrChars(s), monoStrLen(s))
-      if needsFull and glyphCount(cur) < FULL:
+        needsFull = not fontCovers(cur, monoStrChars(s), monoStrLen(s))
+      if needsFull:
         let repl = pickReplacement(fontSize(cur))
         if repl != nil and repl != cur: cur = repl
   let orig = origAs[SetFontFn](textFeature.setFont)

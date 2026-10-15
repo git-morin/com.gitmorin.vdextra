@@ -110,7 +110,7 @@ proc monoStrLen*(s: MonoString): int =
 proc monoStrChars*(s: MonoString): ptr UncheckedArray[uint16] =
   cast[ptr UncheckedArray[uint16]](cast[uint64](s) + 20)
 
-proc hasCjk*(s: ptr UncheckedArray[uint16], len: int): bool =
+proc hasWideChars*(s: ptr UncheckedArray[uint16], len: int): bool =
   for i in 0 ..< len:
     if s[i] > 0x2E7F'u16: return true
   false
@@ -265,6 +265,47 @@ proc isFontClass*(o: MonoObject): bool =
     if cur == gClsOff: return true
     cur = pClassGetParent(cur)
   false
+
+proc charToGlyph(font: MonoObject): MonoObject =
+  if font == nil or gDictField == nil or pFieldGetValue == nil: return nil
+  var dict: pointer = nil
+  pFieldGetValue(font, gDictField, addr dict)
+  dict
+
+proc dictHasKey(dict: MonoObject, unit: uint16): int =
+  if dict == nil or pObjGetClass == nil or pClassGetMethod == nil or
+     pRuntimeInvoke == nil or pObjUnbox == nil: return -1
+  let dc = pObjGetClass(dict)
+  if dc == nil: return -1
+  let m = pClassGetMethod(dc, "ContainsKey", 1)
+  if m == nil: return -1
+  var key = unit
+  var args: array[1, pointer]
+  args[0] = addr key
+  var exc: MonoObject = nil
+  let r = pRuntimeInvoke(m, dict, cast[ptr UncheckedArray[pointer]](addr args[0]), addr exc)
+  if exc != nil or r == nil: return -1
+  let b = cast[ptr uint8](pObjUnbox(r))
+  if b == nil: -1 elif b[] != 0: 1 else: 0
+
+proc fontCovers*(font: MonoObject, s: ptr UncheckedArray[uint16], len: int): bool =
+  if len <= 0: return true
+  # Anything the dictionary cannot answer falls back to the codepoint heuristic this replaced,
+  # so a font that cannot be inspected still behaves as it did before.
+  if not isFontClass(font): return not hasWideChars(s, len)
+  let dict = charToGlyph(font)
+  if dict == nil: return not hasWideChars(s, len)
+  var asked: seq[uint16] = @[]
+  for i in 0 ..< len:
+    let u = s[i]
+    if u < 0x80'u16: continue
+    if u in asked: continue
+    asked.add u
+    case dictHasKey(dict, u)
+    of 0: return false
+    of 1: discard
+    else: return not hasWideChars(s, len)
+  true
 
 proc markGood*(f: MonoObject, tag: string) =
   if f == nil: return
