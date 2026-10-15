@@ -30,7 +30,7 @@ jobs:
         run: |
           fail=0
           tmp=$(mktemp -d)
-          for f in app/src/main/nim/*.nim; do
+          for f in app/src/main/nim/*.nim app/src/main/nim/hooks/*.nim; do
             cp "$f" "$tmp/$(basename "$f")"
             nimpretty --maxLineLen:100 --out:"$tmp/$(basename "$f")" "$f"
             if ! diff -u "$f" "$tmp/$(basename "$f")"; then
