@@ -22,8 +22,6 @@ lint: check fmt-check ## Type-check the Nim and check formatting (needs no Andro
 check: # Type-check the Nim against the real android target
 	@nim check --hints:off $(NIM_MAIN)
 
-### nimpretty only rewrites in place, so compare against a copy to get a check out of it.
-### maxLineLen matches the 100 columns the sources are written to; its default is 80.
 fmt-check: # Check formatting without rewriting anything
 	@fail=0; tmp=$$(mktemp -d); \
 	for f in $(NIM_SRC); do \
@@ -44,8 +42,6 @@ fmt: ## Reformat the Nim and C sources in place
 	@for f in $(NIM_SRC); do nimpretty --maxLineLen:100 "$$f"; done
 	@command -v clang-format >/dev/null 2>&1 && clang-format -i $(C_SRC) || true
 
-### A push to main or dev already triggers the workflow, so dispatching as well would run it
-### twice; any other branch matches no push trigger and needs the dispatch.
 build: ## Push this branch, build it in CI and wait for the result
 	@set -euo pipefail; \
 	git push origin $(BRANCH); \
@@ -57,8 +53,6 @@ build: ## Push this branch, build it in CI and wait for the result
 	echo "watching run $$id"; \
 	gh run watch "$$id" --exit-status
 
-### Scoped to one run id and one artifact pattern: given neither, gh downloads every artifact
-### in the repository instead.
 apk: ## Download the APK built for this branch
 	@set -euo pipefail; \
 	id=$$(gh run list --branch $(BRANCH) --limit 1 --json databaseId,status \
@@ -69,8 +63,6 @@ apk: ## Download the APK built for this branch
 	gh run download "$$id" -R $(REPO) -D $(APK_DIR) -p 'vdextra-*'; \
 	find $(APK_DIR) -name '*.apk'
 
-### Deliberately no default: a headset address does not belong in the repository. Only the
-### targets that talk to the device require it, so lint and build work without it.
 require-device:
 	@test -n "$(DEVICE)" || { echo "DEVICE is not set: export DEVICE=<ip>:<port>"; exit 1; }
 
@@ -88,8 +80,7 @@ run: require-device ## Restart Virtual Desktop
 
 ship: build apk install run ## Build in CI, install on the headset and restart Virtual Desktop
 
-### The link drops whenever the headset idles, and a stale connection reports `device` while
-### every command fails, so disconnect first and keep trying until a shell actually answers.
+
 connect: require-device ## Reconnect wireless adb to the headset
 	@for i in $$(seq 1 10); do \
 	  adb disconnect $(DEVICE) >/dev/null 2>&1 || true; \
@@ -106,8 +97,6 @@ device: require-device # Show the device, Virtual Desktop's pid and the installe
 logs: require-device ## Follow the VDExtra log
 	@$(ADB) logcat -s VDExtra
 
-### Never pass -t here: it truncates before the tag filter is applied, so it silently reports
-### nothing at all.
 logs-dump: require-device # Dump the VDExtra log so far
 	@$(ADB) logcat -d -s VDExtra
 

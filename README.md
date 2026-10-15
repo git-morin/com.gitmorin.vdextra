@@ -36,8 +36,6 @@ Later versions can update themselves from **Options → Updates**.
   and the font caveat to know before adding a non-Latin script.
 - [Building](docs/building.md) — toolchain, the `make` loop, and how Nim fits into the native
   build.
-- [Releases and updates](docs/releases.md) — the two channels, how versions are computed, and
-  how the in-app updater works.
 
 ## Notes
 

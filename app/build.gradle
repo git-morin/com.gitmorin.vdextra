@@ -1,15 +1,10 @@
 plugins { id 'com.android.application' }
 
-// Signing: prefer env vars (CI secrets), fall back to root signing.properties (local, not committed)
 def signing = new Properties()
 def signingFile = rootProject.file('signing.properties')
 if (signingFile.exists()) { signingFile.withInputStream { signing.load(it) } }
 def signingValue = { String key -> System.getenv(key) ?: signing.getProperty(key) }
 def keystorePath = signingValue('KEYSTORE_FILE')
-
-// Version comes from the release workflow, which derives it from git tags rather than from a
-// value committed here - a CI job that commits a version bump to main only retriggers itself.
-// The fallback is for local builds, and is deliberately lower than anything CI produces.
 def vdVersionName = project.findProperty('vdVersionName') ?: '0.0.0-local'
 def vdVersionCode = (project.findProperty('vdVersionCode') ?: '1').toString().toInteger()
 
@@ -44,8 +39,6 @@ android {
         }
     }
 
-    // BuildConfig.APPLICATION_ID is how the module, running inside Virtual Desktop's process,
-    // addresses its own package - getPackageName() there returns Virtual Desktop's.
     buildFeatures {
         buildConfig true
     }
@@ -72,7 +65,6 @@ dependencies {
     implementation 'com.google.android.material:material:1.12.0'
     compileOnly files('libs/libxposed-api.jar')
     implementation files('libs/libxposed-service-full.jar')
-
     compileOnly 'org.projectlombok:lombok:1.18.38'
     annotationProcessor 'org.projectlombok:lombok:1.18.38'
 }

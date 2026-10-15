@@ -29,7 +29,7 @@
                 android:orientation="vertical"
                 android:padding="16dp">
 
-                <!-- Status card -->
+
                 <com.google.android.material.card.MaterialCardView
                     android:id="@+id/home_status"
                     android:layout_width="match_parent"
@@ -72,7 +72,6 @@
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
-                <!-- System info -->
                 <com.google.android.material.card.MaterialCardView
                     style="@style/VD.Card"
                     android:layout_marginTop="12dp"
@@ -89,7 +88,6 @@
                         android:paddingBottom="4dp"/>
                 </com.google.android.material.card.MaterialCardView>
 
-                <!-- Dictionary info -->
                 <com.google.android.material.card.MaterialCardView
                     style="@style/VD.Card"
                     android:layout_marginTop="12dp"
