@@ -12,7 +12,6 @@ var
   gPollThread: Thread[void]
 
 proc hex(p: pointer): string =
-  # toHex is fixed-width, so a width of 1 silently truncated every address to one digit.
   let v = cast[uint64](p)
   if v == 0: "0x0" else: "0x" & toLowerAscii(toHex(v, 16)).strip(trailing = false, chars = {'0'})
 
@@ -24,13 +23,9 @@ proc callPtrFn(s: ElfSyms, name: cstring): pointer =
   if fn == nil: nil else: fn()
 
 proc runtimeIsUp(s: ElfSyms): bool {.gcsafe.} =
-  ## These read globals that stay null until mono_init() has run in *that* image, which is what
-  ## lets us ask whether a runtime is up instead of guessing at timing.
   callPtrFn(s, "mono_get_corlib") != nil or callPtrFn(s, "mono_get_root_domain") != nil
 
 proc tryAttachMono(): bool =
-  ## Safe to call from several places at once; whichever caller wins installs the hooks and the
-  ## rest become no-ops. A false answer means "not ready yet, ask again", never a failure.
   if gAttached.load(): return true
   if not gMono.ok:
     let s = findLiveImage(MONO_SONAME, runtimeIsUp)
@@ -48,10 +43,6 @@ proc tryAttachMono(): bool =
   true
 
 proc pollForMono() {.thread.} =
-  ## Only a fallback for the Java-level Runtime.initInternal hook never firing at all - a
-  ## future app version renaming or resignaturing it, say. The short delay just lets that hook,
-  ## which fires ~70ms in on the right thread, win in the normal case; it is not a correctness
-  ## guard, since tryAttachMono refuses to attach to a runtime that is not up yet.
   sleep(2000)
   var i = 0
   while not tryAttachMono():
@@ -59,9 +50,6 @@ proc pollForMono() {.thread.} =
       logI("still waiting for a live libmonosgen-2.0.so runtime (" & $(i div 5 + 2) & "s elapsed)")
     sleep(200)
     inc i
-  # doSetup's patience lives here rather than in nativeCheckMono: this thread blocks nothing,
-  # while that JNI call runs on the app's main thread inside ContentProvider.attachInfo, where
-  # the system's bind-application watchdog could kill the process for stalling.
   i = 0
   while not gSetup.load():
     doSetup()
@@ -78,9 +66,6 @@ proc Java_com_gitmorin_vdextra_MainModule_nativeInit(env, thiz: pointer)
 
 proc Java_com_gitmorin_vdextra_MainModule_nativeCheckMono(env, thiz: pointer): bool
     {.exportc, cdecl, dynlib.} =
-  ## Called straight from the Java initInternal hook, on the very thread that just finished
-  ## Mono's own bootstrap - so doSetup() runs on a managed thread without any foreign-thread
-  ## attach, which is the part every mono_*_attach API refused to give us.
   logI("nativeCheckMono called from the Java initInternal hook")
   for _ in 0 ..< 20:
     if tryAttachMono():

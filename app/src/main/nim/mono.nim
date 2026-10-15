@@ -94,8 +94,6 @@ proc corlib*(): MonoImage =
   gCorlib
 
 proc setDomain*(d: MonoDomain) =
-  ## The trigger hooks are handed a domain pointer well before any call of ours could ask for
-  ## one, and on this build mono_domain_get can stay null, so the first one we see is kept.
   if gDomain == nil and d != nil: gDomain = d
 
 proc domain*(): MonoDomain =
@@ -106,7 +104,6 @@ proc domain*(): MonoDomain =
   if pGetRootDomain != nil: return pGetRootDomain()
   nil
 
-# A MonoString carries its length at offset 16 and its UTF-16 data at offset 20.
 proc monoStrLen*(s: MonoString): int =
   if s == nil: 0 else: int(cast[ptr int32](cast[uint64](s) + 16)[])
 
@@ -114,8 +111,6 @@ proc monoStrChars*(s: MonoString): ptr UncheckedArray[uint16] =
   cast[ptr UncheckedArray[uint16]](cast[uint64](s) + 20)
 
 proc hasCjk*(s: ptr UncheckedArray[uint16], len: int): bool =
-  ## Really "needs the full-coverage font": anything above U+2E7F. Note that this misses
-  ## Cyrillic and Greek, which sit below it - see the README before adding such a language.
   for i in 0 ..< len:
     if s[i] > 0x2E7F'u16: return true
   false
@@ -185,10 +180,6 @@ proc dictPut*(key, val: string) =
 proc dictLen*(): int = gDict.len
 
 proc translate*(text: MonoString): MonoString =
-  ## The translated string for `text`, or nil to leave it alone. Any string the dictionary
-  ## does not carry passes through untouched, which is what makes partial dictionaries valid.
-  # With no dictionary loaded - an English UI - there is nothing to look up, so skip the
-  # conversion entirely rather than allocating a key per set_Text call.
   if gDict.len == 0: return nil
   let len = monoStrLen(text)
   if len <= 0 or len > 2048: return nil
@@ -197,8 +188,6 @@ proc translate*(text: MonoString): MonoString =
   if hit.len == 0: nil else: makeMono(hit)
 
 proc getClass*(qname: string): MonoClass =
-  ## Resolves an assembly-qualified name through System.Type.GetType, which is the only route
-  ## that works here: the assemblies are AOT images, so there is no JIT-time name table to ask.
   if pClassFromName == nil or pClassGetMethod == nil or pRuntimeInvoke == nil or
      pTypeGetClass == nil or corlib() == nil:
     return nil
@@ -239,8 +228,6 @@ proc fieldSetBool*(o: pointer, f: MonoField, v: bool) =
   var tmp = v
   pFieldSetValue(o, f, addr tmp)
 
-# goodFont/goodMap entries are pinned, so Mono's moving collector cannot relocate them out
-# from under the raw pointers we keep.
 proc pin*(o: MonoObject): MonoGCHandle =
   if o == nil or pGchandleNew == nil: 0'u32 else: pGchandleNew(o, 1)
 
@@ -251,7 +238,6 @@ proc unpin*(h: MonoGCHandle) =
   if h != 0'u32 and pGchandleFree != nil: pGchandleFree(h)
 
 proc glyphCount*(font: MonoObject): int =
-  ## -1 when the count cannot be read at all, which is distinct from a font that has none.
   if font == nil or gDictField == nil or pFieldGetValue == nil or pObjGetClass == nil or
      pClassGetMethod == nil or pRuntimeInvoke == nil or pObjUnbox == nil:
     return -1
@@ -299,8 +285,6 @@ proc goodMapHas*(k: int): bool =
 proc goodFont*(): MonoObject = moved(gGoodHandle)
 
 proc pickReplacement*(size: float32): MonoObject =
-  ## Sizes 30 and 32 match to the nearest cached size; anything else prefers the largest
-  ## non-32 entry, falling back to 32.
   var h: MonoGCHandle = 0
   withLock gMapLock:
     if gGoodHandle == 0'u32: return nil

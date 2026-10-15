@@ -56,8 +56,7 @@ proc sym*(s: ElfSyms, name: cstring): pointer =
   nil
 
 proc elfSymsAt*(base: uint64): ElfSyms =
-  ## `base` comes from /proc/self/maps and may be anything, so every failure answers with a
-  ## non-ok result rather than raising.
+  ## `base` comes from `/proc/self/maps` and may be anything, so every failure answers with a non-ok result rather than raising
   let eh = cast[ptr Elf64Ehdr](base)
   if eh.ident[0] != 0x7f or eh.ident[1] != byte('E') or
      eh.ident[2] != byte('L') or eh.ident[3] != byte('F'):
@@ -72,8 +71,7 @@ proc elfSymsAt*(base: uint64): ElfSyms =
   if dynVa == 0 or minVa == high(uint64): return
 
   let bias = base - minVa
-  # bionic leaves DT_* pointer entries as link-time vaddrs on some paths and pre-relocates
-  # them on others; a value already at or above the load bias is clearly the latter.
+  # bionic leaves DT_* pointer entries as link-time vaddrs on some paths and pre-relocates them on others. A value already at or above the load bias is clearly the latter.
   template fix(v: uint64): uint64 = (if v >= bias: v else: bias + v)
 
   var
@@ -103,7 +101,7 @@ proc elfSymsAt*(base: uint64): ElfSyms =
       symoff = gnu[1]
       bloomsz = gnu[2]
       buckets = cast[ptr UncheckedArray[uint32]](
-        cast[uint64](gnu) + uint64(4 + bloomsz * 2) * 4'u64) # bloom words are 64-bit on ELF64
+        cast[uint64](gnu) + uint64(4 + bloomsz * 2) * 4'u64)
       chain = cast[ptr UncheckedArray[uint32]](
         cast[uint64](buckets) + uint64(nbucket) * 4'u64)
     var last = 0'u32
@@ -150,9 +148,7 @@ proc findLiveImage*(soname: string, readyProbe: proc(s: ElfSyms): bool {.nimcall
   ## injected outside Virtual Desktop's per-APK ClassLoader namespace while libmonosgen is one
   ## of VD's private libs inside it - so dlopen of its path never finds the running instance to
   ## reuse, and instead maps a second copy whose mono_init() has never run. Every accessor in
-  ## that copy then reads zeroed globals, which looks exactly like a runtime with its
-  ## introspection compiled out, and the whole hooking layer silently does nothing. dlopen of a
-  ## runtime copy also runs its DT_INIT_ARRAY constructors.
+  ## that copy then reads zeroed globals. dlopen of a runtime copy also runs its DT_INIT_ARRAY constructors.
   ##
   ## RTLD_NOLOAD and dl_iterate_phdr are namespace-scoped too, so /proc/self/maps is the only
   ## view left. Walking the mapped image needs no file access because libmonosgen's .dynsym,

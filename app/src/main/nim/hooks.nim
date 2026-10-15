@@ -5,9 +5,7 @@ proc dobbyHook(target, replace: pointer, orig: ptr pointer): cint
   {.importc: "DobbyHook", header: "dobby.h", gcsafe.}
 
 proc hook(target, replace: pointer, orig: ptr pointer): bool {.discardable.} =
-  ## Dobby answers 0 on success.
-  if target == nil: return false
-  dobbyHook(target, replace, orig) == 0
+  if target == nil: return false else: dobbyHook(target, replace, orig) == 0 ## Dobby answers 0 on success.
 
 const
   SER_CAP = 40 ## how many Serialize calls to watch before giving up on font capture
@@ -70,9 +68,6 @@ var
 
 proc doSetup*()
 
-# A Nim exception unwinding into Mono's stack frames is undefined, and a Defect escaping a
-# hook took the whole process down with no tombstone and nothing in logcat. Every hook body
-# is wrapped so a failure is logged and the original still runs.
 template guard(what: string, body: untyped) =
   try:
     body
@@ -82,8 +77,7 @@ template guard(what: string, body: untyped) =
     logE("hook " & what & " defect: " & e.msg)
 
 proc hookSetText(tb: pointer, text: MonoString) {.cdecl.} =
-  ## Translation only. Font handling is left entirely to set_Font, so that this setter never
-  ## writes Font re-entrantly.
+  ## Translation only.
   var s = text
   guard "set_Text":
     let t = translate(text)
@@ -176,8 +170,6 @@ proc rateMul(): float32 =
   if gBitrateExtend.load() and s > 0'f32: s else: 1'f32
 
 proc scaleMax(v: int32): int32 =
-  # Saturate rather than wrap. The C++ this replaces relied on a C cast quietly truncating on
-  # overflow; Nim range-checks the same conversion and a Defect here killed the process.
   let scaled = float64(v) * float64(rateMul())
   if scaled >= float64(high(int32)): high(int32)
   elif scaled <= float64(low(int32)): low(int32)
@@ -232,8 +224,6 @@ proc hookDesktopBitrateString(hmd: int32, t: cfloat): MonoString {.cdecl.} =
   result = origDesktopBitrateString(hmd, cfloat(t * kDesktopFor(hmd)))
   tInStrDesktop = false
 
-# Desktop fallback mode: the UI multiplies the tier by k, so divide by k first while the
-# speed-test soft limit is being computed, then restore it.
 proc hookSettingsMeasured(self: pointer) {.cdecl.} =
   tDeskLimitCtx = true
   if origSettingsMeasured != nil: origSettingsMeasured(self)
@@ -277,13 +267,10 @@ proc rememberUserSettings(self: pointer) =
     if gh != 0'u32: gUserSettingsPin = moved(gh)
 
 proc resendFullPacket(pinned: pointer) =
-  ## Only after the speed test: resending earlier would emit a packet with meas=0.
   if rateMul() > 1'f32 and gSpeedtestDone.load():
     if origUserSendReload != nil: origUserSendReload(pinned)
     if gMobileSettings != nil and origSendReload != nil: origSendReload(gMobileSettings)
 
-# Incremental update: write only the baseline value (already scaled locally via the lookup
-# table), then resend the full packet, which the sender multiplies by k.
 proc hookSetDesktopLimit(self: pointer, v: cfloat) {.cdecl.} =
   if origSetDesktopLimit == nil: return
   rememberUserSettings(self)
@@ -303,8 +290,6 @@ proc hookSetVRLimit(self: pointer, v: cfloat) {.cdecl.} =
   unpin(h)
 
 proc hookSerializerObject(obj, writer: pointer) {.cdecl.} =
-  ## Full packet: multiply the tier by k before serialising and restore it after, without
-  ## triggering a local recalculation.
   if origSerializerObject == nil: return
   if gUserSettingsPin == nil and obj != nil and gClsUserSettings != nil and
      pObjGetClass != nil and pObjGetClass(obj) == gClsUserSettings:
@@ -327,7 +312,6 @@ proc hookSerializerObject(obj, writer: pointer) {.cdecl.} =
   unpin(h)
 
 proc hookSetMeasuredBandwidth(self: pointer, v: int32) {.cdecl.} =
-  ## Unlock pins the measurement to int32 max; 10G would overflow int32.
   captureMobile(self)
   let firstReal = v > 0'i32 and not gSpeedtestDone.load()
   var outv = v
@@ -340,7 +324,6 @@ proc hookSetMeasuredBandwidth(self: pointer, v: int32) {.cdecl.} =
       origUserSendReload(gUserSettingsPin)
 
 proc findInherited(c: MonoClass, name: string): pointer =
-  ## SendSettingsReload lives on a base class; walk up a few levels for it.
   var cur = c
   for _ in 0 ..< 4:
     if cur == nil: break
@@ -430,8 +413,6 @@ proc installBitrateHooks(): bool =
   logI("bitrate hooks=" & $ok & " scale=" & formatFloat(rateMul(), ffDecimal, 2))
   hx != nil and us != nil and ms != nil
 
-# Forcing HasValidIdentity=true keeps locally discovered PCs merged in when the server is
-# unreachable.
 var
   origGetHasValidIdentity: GetBoolFn
   origSetHasValidIdentity: SetBoolFn
@@ -491,7 +472,6 @@ proc installForceLanHooks(): bool =
   true
 
 proc hookSerialize(x0, x1, x2, x3: pointer) {.cdecl.} =
-  ## Watches font deserialisation for a full-coverage font to adopt.
   let slot = x1
   if origSerialize != nil: origSerialize(x0, x1, x2, x3)
   guard "Serialize":
@@ -523,9 +503,6 @@ proc hookLoad2(x0, x1, x2: pointer): MonoObject {.cdecl.} =
 
 proc doSetupImpl() =
   if corlib() == nil: return
-
-  # Install the font-independent hooks first, so they are not blocked by the text block's
-  # early return; anything whose class will not resolve is retried on the next pass.
   if not gQualityTried.load() and installQualitySoundHooks(): gQualityTried.store(true)
   if not gBitrateTried.load() and installBitrateHooks(): gBitrateTried.store(true)
   if not gForceLanTried.load() and installForceLanHooks(): gForceLanTried.store(true)
@@ -591,13 +568,11 @@ proc doSetupImpl() =
 
 proc doSetup*() =
   if gSetup.load(): return
-  # Re-entrancy guard: our own GetType call runs managed code, which trips ldstr again.
   var expected = false
   if not gInSetup.compareExchange(expected, true): return
   doSetupImpl()
   gInSetup.store(false)
 
-# All of these run on a managed thread, which is the only place doSetup() is safe.
 var gLd = 0
 
 proc hookLdstr(a0, a1, a2, a3: pointer): MonoString {.cdecl.} =
@@ -611,9 +586,6 @@ proc hookLdstr(a0, a1, a2, a3: pointer): MonoString {.cdecl.} =
 var gObjNew = 0
 
 proc hookObjNew(d: MonoDomain, k: MonoClass): MonoObject {.cdecl.} =
-  ## Every `new X()` in managed code allocates through here. Unlike ldstr - interned, so a
-  ## literal is only ever loaded once - this keeps firing in any actively running app, which
-  ## makes it a far more reliable tick for a module that attached after startup.
   guard "object_new":
     if d != nil: setDomain(d)
     inc gObjNew
@@ -640,10 +612,6 @@ proc hookRunMain(asmv: pointer, argc: cint, argv: pointer): cint {.cdecl.} =
   if origRunMain != nil: origRunMain(asmv, argc, argv) else: -1
 
 proc installTriggerHooks*(sym: proc(name: cstring): pointer {.cdecl, gcsafe.}) =
-  ## ldstr is the one that matters; the rest are redundant nets that cost nothing. On this
-  ## fully-AOT build they essentially never fire - AOT code branches straight between compiled
-  ## methods rather than through Mono's generic entry points - so doSetup() has to run as soon
-  ## as we attach rather than waiting for a tick.
   let ldstr = sym("mono_ldstr_checked")
   if ldstr == nil:
     logE("mono_ldstr_checked not found")
