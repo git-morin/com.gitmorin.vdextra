@@ -58,6 +58,8 @@ public class MainActivity extends AppCompatActivity {
     private TextView langValue, channelValue, updateValue;
     private Updates.Release pendingUpdate;
     private boolean updateBusy;
+    private boolean installReceiverRegistered;
+    private int installSessionId = -1;
     private LinearLayout homeInfoSystem, homeInfoDict;
     private MaterialSwitch swNoMusic, swNoPerf, swExtend, swUnlock, swForceLan;
 
@@ -136,12 +138,6 @@ public class MainActivity extends AppCompatActivity {
     @Override protected void onResume() {
         super.onResume();
         sCurrent = this;
-        IntentFilter f = new IntentFilter(Updates.installAction());
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(installReceiver, f, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(installReceiver, f);
-        }
         if (sService == null) { try { XposedServiceHelper.registerListener(sListener); } catch (Throwable ignored) {} }
         ensureServiceRegistered();
         refresh();
@@ -149,8 +145,29 @@ public class MainActivity extends AppCompatActivity {
 
     @Override protected void onPause() {
         if (sCurrent == this) sCurrent = null;
-        try { unregisterReceiver(installReceiver); } catch (Throwable ignored) {}
         super.onPause();
+    }
+
+    @Override protected void onDestroy() {
+        unregisterInstallReceiver();
+        super.onDestroy();
+    }
+
+    private void registerInstallReceiver() {
+        if (installReceiverRegistered) return;
+        IntentFilter f = new IntentFilter(Updates.installAction());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            getApplicationContext().registerReceiver(installReceiver, f, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            getApplicationContext().registerReceiver(installReceiver, f);
+        }
+        installReceiverRegistered = true;
+    }
+
+    private void unregisterInstallReceiver() {
+        if (!installReceiverRegistered) return;
+        installReceiverRegistered = false;
+        try { getApplicationContext().unregisterReceiver(installReceiver); } catch (Throwable ignored) {}
     }
 
     private void showPage(int p) {
@@ -383,16 +400,17 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         updateBusy = true;
+        registerInstallReceiver();
         updateValue.setText(R.string.update_downloading);
         new Thread(() -> {
             try {
                 File apk = Updates.download(this, r);
                 runOnUiThread(() -> updateValue.setText(R.string.update_installing));
-                Updates.install(this, apk);
-                runOnUiThread(() -> updateBusy = false);
+                Updates.install(this, apk, id -> installSessionId = id);
             } catch (Throwable t) {
                 runOnUiThread(() -> {
                     updateBusy = false;
+                    unregisterInstallReceiver();
                     updateValue.setText(getString(R.string.update_failed_format, reason(t)));
                 });
             }
@@ -406,9 +424,10 @@ public class MainActivity extends AppCompatActivity {
 
     private final BroadcastReceiver installReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
+            int session = i.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1);
+            if (installSessionId < 0 || session != installSessionId) return;
             int status = i.getIntExtra(PackageInstaller.EXTRA_STATUS, -1);
             if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
-
                 Intent confirm = i.getParcelableExtra(Intent.EXTRA_INTENT);
                 if (confirm != null) {
                     confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -416,9 +435,15 @@ public class MainActivity extends AppCompatActivity {
                 }
             } else if (status == PackageInstaller.STATUS_SUCCESS) {
                 pendingUpdate = null;
+                updateBusy = false;
+                installSessionId = -1;
+                unregisterInstallReceiver();
                 Toast.makeText(MainActivity.this, R.string.update_restart_hint, Toast.LENGTH_LONG).show();
                 refresh();
             } else {
+                updateBusy = false;
+                installSessionId = -1;
+                unregisterInstallReceiver();
                 String m = i.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE);
                 updateValue.setText(getString(R.string.update_failed_format,
                         m == null ? String.valueOf(status) : m));

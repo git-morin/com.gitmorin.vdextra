@@ -8,6 +8,13 @@ on:
 permissions:
   contents: write
 
+# Serialised per branch: the version job reads the tags its predecessor published, and the dev
+# prune deletes every prerelease but its own, so overlapping runs would drop a release or
+# delete a newer one.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   NIM_VERSION: '2.2.12'
 

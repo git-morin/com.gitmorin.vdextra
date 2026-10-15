@@ -20,6 +20,7 @@ public class UpdateCheckReceiver extends BroadcastReceiver {
     private static final String CHANNEL_ID = "updates";
     private static final int NOTIFICATION_ID = 1;
     private static final long MIN_INTERVAL_MS = 6 * 60 * 60 * 1000L;
+    private static final long RETRY_AFTER_MS = 15 * 60 * 1000L;
 
     @Override
     public void onReceive(Context context, Intent intent) {
@@ -40,8 +41,11 @@ public class UpdateCheckReceiver extends BroadcastReceiver {
             try {
                 check(context);
             } catch (Throwable t) {
-
-                Log.w(TAG, "background update check failed", t);
+                prefs.edit()
+                     .putLong(PrefKeys.LAST_UPDATE_CHECK, now - MIN_INTERVAL_MS + RETRY_AFTER_MS)
+                     .apply();
+                Log.w(TAG, "background update check failed, retrying in "
+                        + (RETRY_AFTER_MS / 60000) + " min", t);
             } finally {
                 pending.finish();
             }
