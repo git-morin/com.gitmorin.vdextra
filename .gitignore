@@ -9,6 +9,9 @@ captures/
 # Nim codegen output (CMake regenerates it into the build dir)
 nimcache/
 
+# make apk downloads here
+dist/
+
 # Local config & signing (not committed)
 local.properties
 signing.properties
