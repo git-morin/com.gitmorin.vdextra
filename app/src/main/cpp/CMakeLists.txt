@@ -7,8 +7,6 @@ set(DOBBY_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
 set(DOBBY_BUILD_TEST OFF CACHE BOOL "" FORCE)
 
 include(FetchContent)
-# Pinned by sha, not a branch: Dobby is the hooking engine, so moving it is changing the engine
-# underneath a working module. This is the tree that used to be vendored here.
 FetchContent_Declare(dobby
   GIT_REPOSITORY https://github.com/JingMatrix/Dobby.git
   GIT_TAG 05a09ac6807a6bb1726350e40ea4b127c1c79809
