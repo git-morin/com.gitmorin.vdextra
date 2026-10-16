@@ -12,8 +12,8 @@ type
     volume*: Atomic[float32]
     custom*: Atomic[bool]
     state*: Atomic[int] ## 0 unknown, 1 playing, 2 paused; polled by the Java player
-    play, playCb, fadeOut, pauseNow, resume: Hook
-    musicField: MonoField
+    play, playCb, fadeOut, pauseNow, resume, onTimer: Hook
+    musicField, sourceField: MonoField
     setVolume: SetFloat1Fn
 
   CueSoundsFeature* = ref object of Feature
@@ -39,6 +39,10 @@ proc applyVolume(self: pointer) =
   if v >= 1'f32: return # full scale means VD's own level, not a forced 1.0
   let inst = fieldGetPtr(self, musicFeature.musicField)
   if inst == nil: return
+  # set_Volume goes straight to xnAudioSourceSetGain with no null check of its own, so the
+  # native source must already exist; it is still null while the track is being loaded.
+  if musicFeature.sourceField == nil: return
+  if fieldGetPtr(inst, musicFeature.sourceField) == nil: return
   musicFeature.setVolume(inst, cfloat(v))
 
 proc hookMusicPlay(self: pointer) {.cdecl.} =
@@ -64,6 +68,13 @@ proc hookMusicPauseNow(self: pointer) {.cdecl.} =
   let orig = origAs[VoidFn](musicFeature.pauseNow)
   if orig != nil: orig(self)
   musicFeature.state.store(2)
+
+# The music timer is the retry clock: Play lands before the source exists, so the volume is
+# re-attempted here until it sticks.
+proc hookMusicOnTimer(self, state: pointer) {.cdecl.} =
+  let orig = origAs[Void2Fn](musicFeature.onTimer)
+  if orig != nil: orig(self, state)
+  guard "music timer": applyVolume(self)
 
 proc hookMusicResume(self: pointer) {.cdecl.} =
   let orig = origAs[VoidFn](musicFeature.resume)
@@ -93,6 +104,7 @@ musicFeature.playCb = newHook(MUSIC_SYSTEM, "Play", 1, cast[pointer](hookMusicPl
 musicFeature.fadeOut = newHook(MUSIC_SYSTEM, "FadeOut", 0, cast[pointer](hookMusicFadeOut))
 musicFeature.pauseNow = newHook(MUSIC_SYSTEM, "PauseNow", 0, cast[pointer](hookMusicPauseNow))
 musicFeature.resume = newHook(MUSIC_SYSTEM, "Resume", 0, cast[pointer](hookMusicResume))
+musicFeature.onTimer = newHook(MUSIC_SYSTEM, "OnTimer", 1, cast[pointer](hookMusicOnTimer))
 
 block:
   let repls = [cast[pointer](cue0), cast[pointer](cue1), cast[pointer](cue2),
@@ -121,10 +133,14 @@ method install*(f: MusicFeature): bool =
   if f.setVolume == nil:
     logE("SoundInstance::set_Volume not found")
     return false
+  if pClassGetField != nil: f.sourceField = pClassGetField(si, "Source")
+  if f.sourceField == nil:
+    logE("SoundInstance::Source not found, leaving music volume alone")
+    return false
   if not f.play.install(cls):
     logE("MusicSystem::Play hook failed")
     return false
-  for h in [f.playCb, f.fadeOut, f.pauseNow, f.resume]: h.install(cls)
+  for h in [f.playCb, f.fadeOut, f.pauseNow, f.resume, f.onTimer]: h.install(cls)
   logI("hooked MusicSystem::Play, music volume=" & $f.volume.load())
   true
 
