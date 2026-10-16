@@ -58,7 +58,7 @@ public class MainModule extends XposedModule {
 
             nativeSetDict(ks, vs);
             nativeInit();
-            nativeSetNoMusic(readBool(PrefKeys.DISABLE_MUSIC, false));
+            nativeSetMusicVolume(readFloat(PrefKeys.MUSIC_VOLUME, 1.0f));
             nativeSetQuality(readBool(PrefKeys.DISABLE_QUALITY_SOUND, false), readInt(PrefKeys.QUALITY_MASK, 0x7F));
             nativeSetBitrate(readBool(PrefKeys.BITRATE_EXTEND, false), readBool(PrefKeys.BITRATE_UNLOCK, false), readFloat(PrefKeys.BITRATE_SCALE, 2.0f));
             nativeSetForceLan(readBool(PrefKeys.FORCE_LAN, true));
@@ -155,7 +155,7 @@ public class MainModule extends XposedModule {
     public native void nativeInit();
     public native boolean nativeCheckMono();
     public native void nativeSetDict(String[] keys, String[] vals);
-    public native void nativeSetNoMusic(boolean disable);
+    public native void nativeSetMusicVolume(float volume);
     public native void nativeSetQuality(boolean enable, int mask);
     public native void nativeSetBitrate(boolean extend, boolean unlock, float scale);
     public native void nativeSetForceLan(boolean enable);

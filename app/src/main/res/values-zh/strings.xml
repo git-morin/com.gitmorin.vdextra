@@ -46,8 +46,9 @@
     <string name="notif_update_text_format">%1$s 已可安装</string>
 
     <string name="section_sound">声音</string>
-    <string name="sound_no_music_title">禁用背景音乐</string>
-    <string name="sound_no_music_support">未连接时不再自动播放</string>
+    <string name="music_volume_title">背景音乐音量</string>
+    <string name="music_volume_support">降低菜单音乐音量；最大时保持 Virtual Desktop 原有音量</string>
+    <string name="music_volume_format">%1$d%%</string>
     <string name="sound_no_perf_title">禁用性能提示音</string>
     <string name="sound_no_perf_support">长按可单独调节每个提示音</string>
 

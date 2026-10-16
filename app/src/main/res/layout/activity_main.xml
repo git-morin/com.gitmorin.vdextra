@@ -210,23 +210,37 @@
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:orientation="horizontal"
-                            android:gravity="center_vertical"
-                            android:minHeight="56dp">
+                            android:orientation="vertical"
+                            android:paddingTop="8dp"
+                            android:paddingBottom="4dp">
                             <LinearLayout
-                                android:layout_width="0dp"
+                                android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:orientation="vertical"
-                                android:paddingTop="8dp"
-                                android:paddingBottom="8dp">
-                                <TextView style="@style/VD.Title" android:text="@string/sound_no_music_title"/>
-                                <TextView style="@style/VD.Support" android:text="@string/sound_no_music_support"/>
+                                android:orientation="horizontal"
+                                android:gravity="center_vertical">
+                                <LinearLayout
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:orientation="vertical">
+                                    <TextView style="@style/VD.Title" android:text="@string/music_volume_title"/>
+                                    <TextView style="@style/VD.Support" android:text="@string/music_volume_support"/>
+                                </LinearLayout>
+                                <TextView
+                                    android:id="@+id/music_volume_value"
+                                    style="@style/VD.Title"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:paddingStart="12dp"
+                                    android:paddingEnd="0dp"/>
                             </LinearLayout>
-                            <com.google.android.material.materialswitch.MaterialSwitch
-                                android:id="@+id/sw_no_music"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"/>
+                            <com.google.android.material.slider.Slider
+                                android:id="@+id/sl_music_volume"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:valueFrom="0"
+                                android:valueTo="100"
+                                android:stepSize="5"/>
                         </LinearLayout>
                         <LinearLayout
                             android:id="@+id/row_no_perf"

@@ -218,6 +218,12 @@ proc fieldGetF32*(o: pointer, f: MonoField): float32 =
   pFieldGetValue(o, f, addr v)
   v
 
+proc fieldGetPtr*(o: pointer, f: MonoField): pointer =
+  if o == nil or f == nil or pFieldGetValue == nil: return nil
+  var v: pointer
+  pFieldGetValue(o, f, addr v)
+  v
+
 proc fieldSetF32*(o: pointer, f: MonoField, v: float32) =
   if o == nil or f == nil or pFieldSetValue == nil: return
   var tmp = v

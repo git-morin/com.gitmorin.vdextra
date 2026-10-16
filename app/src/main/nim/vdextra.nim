@@ -76,10 +76,13 @@ proc Java_com_gitmorin_vdextra_MainModule_nativeCheckMono(env, thiz: pointer): b
     sleep(100)
   false
 
-proc Java_com_gitmorin_vdextra_MainModule_nativeSetNoMusic(env, thiz: pointer, disable: bool)
-    {.exportc, cdecl, dynlib.} =
-  musicFeature.disabled.store(disable)
-  logI("noMusic=" & $disable)
+proc Java_com_gitmorin_vdextra_MainModule_nativeSetMusicVolume(
+    env, thiz: pointer, volume: cfloat) {.exportc, cdecl, dynlib.} =
+  var v = float32(volume)
+  if not (v >= 0'f32): v = 1'f32 # also catches NaN
+  if v > 1'f32: v = 1'f32
+  musicFeature.volume.store(v)
+  logI("musicVolume=" & formatFloat(v, ffDecimal, 2))
 
 proc Java_com_gitmorin_vdextra_MainModule_nativeSetQuality(
     env, thiz: pointer, enable: bool, mask: int32) {.exportc, cdecl, dynlib.} =
