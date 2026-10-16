@@ -121,7 +121,7 @@ jobs:
             serial=99
           else
             channel=dev
-            n=$(git rev-list --count ${range:+$range} 2>/dev/null || echo 1)
+            n=$(git rev-list --count ${range:-HEAD})
             [ "$n" -lt 1 ] && n=1
             name="$next-dev.$n"
             prerelease=true
