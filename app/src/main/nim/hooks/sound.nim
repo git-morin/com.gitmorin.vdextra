@@ -12,8 +12,9 @@ type
     volume*: Atomic[float32]
     custom*: Atomic[bool]
     state*: Atomic[int] ## 0 unknown, 1 playing, 2 paused; polled by the Java player
-    play, playCb, fadeOut, pauseNow, resume, onTimer: Hook
+    play, fadeOut, pauseNow, resume, onTimer: Hook
     musicField, sourceField: MonoField
+    cls: MonoClass
     setVolume: SetFloat1Fn
 
   CueSoundsFeature* = ref object of Feature
@@ -33,6 +34,10 @@ musicFeature.volume.store(1'f32)
 # has to be re-applied every time rather than set once.
 proc applyVolume(self: pointer) =
   if self == nil or musicFeature.setVolume == nil or musicFeature.musicField == nil: return
+  # Only trust self once it really is a MusicSystem: a hooked method that turns out to be
+  # static hands us its argument instead, and reading _music off that is a wild pointer.
+  if pObjGetClass == nil or musicFeature.cls == nil: return
+  if pObjGetClass(self) != musicFeature.cls: return
   # A custom track plays over VD's, so VD's own goes silent rather than being suppressed:
   # leaving its Play intact keeps _music alive, so its own fade and pause stay safe.
   let v = if musicFeature.custom.load(): 0'f32 else: musicFeature.volume.load()
@@ -49,13 +54,6 @@ proc hookMusicPlay(self: pointer) {.cdecl.} =
   let orig = origAs[VoidFn](musicFeature.play)
   if orig != nil: orig(self)
   guard "music play":
-    applyVolume(self)
-    musicFeature.state.store(1)
-
-proc hookMusicPlayCb(self, state: pointer) {.cdecl.} =
-  let orig = origAs[Void2Fn](musicFeature.playCb)
-  if orig != nil: orig(self, state)
-  guard "music play cb":
     applyVolume(self)
     musicFeature.state.store(1)
 
@@ -100,7 +98,6 @@ defCue(6, cue6)
 const MUSIC_SYSTEM = "VirtualDesktop.Mobile.MusicSystem, VirtualDesktop.Mobile"
 
 musicFeature.play = newHook(MUSIC_SYSTEM, "Play", 0, cast[pointer](hookMusicPlay))
-musicFeature.playCb = newHook(MUSIC_SYSTEM, "Play", 1, cast[pointer](hookMusicPlayCb))
 musicFeature.fadeOut = newHook(MUSIC_SYSTEM, "FadeOut", 0, cast[pointer](hookMusicFadeOut))
 musicFeature.pauseNow = newHook(MUSIC_SYSTEM, "PauseNow", 0, cast[pointer](hookMusicPauseNow))
 musicFeature.resume = newHook(MUSIC_SYSTEM, "Resume", 0, cast[pointer](hookMusicResume))
@@ -119,6 +116,7 @@ method install*(f: MusicFeature): bool =
   if cls == nil:
     logE("MusicSystem class not found")
     return false
+  f.cls = cls
   if pClassGetField != nil: f.musicField = pClassGetField(cls, "_music")
   if f.musicField == nil:
     logE("MusicSystem::_music not found")
@@ -140,7 +138,7 @@ method install*(f: MusicFeature): bool =
   if not f.play.install(cls):
     logE("MusicSystem::Play hook failed")
     return false
-  for h in [f.playCb, f.fadeOut, f.pauseNow, f.resume, f.onTimer]: h.install(cls)
+  for h in [f.fadeOut, f.pauseNow, f.resume, f.onTimer]: h.install(cls)
   logI("hooked MusicSystem::Play, music volume=" & $f.volume.load())
   true
 
