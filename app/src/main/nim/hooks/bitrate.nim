@@ -219,7 +219,7 @@ proc hookSetMeasuredBandwidth(self: pointer, v: int32) {.cdecl.} =
   if firstReal: bitrateFeature.speedtestDone.store(true)
   let orig = origAs[SetInt1Fn](bitrateFeature.setMeasuredBandwidth)
   if orig != nil: orig(self, value)
-  if firstReal:
+  if firstReal and bitrateFeature.unlock.load():
     if bitrateFeature.sendReload != nil: bitrateFeature.sendReload(self)
     if bitrateFeature.userSendReload != nil and bitrateFeature.userSettings != nil:
       bitrateFeature.userSendReload(bitrateFeature.userSettings)
