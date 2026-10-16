@@ -14,7 +14,6 @@ class PrefKeys {
 
     /** MUSIC_PATH values that are not a file path; absent means MUSIC_DEFAULT. */
     final String MUSIC_VD = "vd";
-    final String MUSIC_BUNDLED = "bundled";
 
     /** Nightwave Plaza (https://plaza.one), credited in the about dialog. */
     final String MUSIC_PLAZA = "https://radio.plaza.one/mp3";

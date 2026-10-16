@@ -65,7 +65,7 @@ public class MainModule extends XposedModule {
             boolean custom = !PrefKeys.MUSIC_VD.equals(musicPath);
             nativeSetMusicVolume(musicVolume);
             nativeSetCustomMusic(custom);
-            if (custom) MusicPlayer.start(musicPath, moduleApk, musicVolume);
+            if (custom) MusicPlayer.start(musicPath, musicVolume);
             nativeSetQuality(readBool(PrefKeys.DISABLE_QUALITY_SOUND, false), readInt(PrefKeys.QUALITY_MASK, 0x7F));
             nativeSetBitrate(readBool(PrefKeys.BITRATE_EXTEND, false), readBool(PrefKeys.BITRATE_UNLOCK, false), readFloat(PrefKeys.BITRATE_SCALE, 2.0f));
             nativeSetForceLan(readBool(PrefKeys.FORCE_LAN, false));

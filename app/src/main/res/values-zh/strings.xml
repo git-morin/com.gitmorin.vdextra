@@ -53,7 +53,6 @@
     <string name="music_source_vd">Virtual Desktop 音乐</string>
     <string name="music_source_custom">自定义文件</string>
     <string name="music_source_pick">选择文件...</string>
-    <string name="music_source_bundled">VDExtra 主题</string>
     <string name="music_source_plaza">Nightwave Plaza（在线电台）</string>
     <string name="dialog_music_source_title">选择背景音乐</string>
     <string name="toast_music_format">背景音乐已设为 %1$s。重启 Virtual Desktop 生效。</string>
@@ -85,7 +84,7 @@
     <string name="about_credit_title">基于</string>
     <string name="about_credit">最初的设计与原生 hook 实现由 ghitori 完成（vdplus）。VDExtra 是在其基础上的独立延续。</string>
     <string name="about_music_title">背景音乐</string>
-    <string name="about_music">默认音源为 Nightwave Plaza，一个独立的在线电台，由其服务器提供。VDExtra Theme 作为离线备用，由源码生成（tools/gen-theme.py）。</string>
+    <string name="about_music">默认音源为 Nightwave Plaza，一个独立的在线电台，由其服务器提供。若无法连接，则使用 Virtual Desktop 的音乐。</string>
     <string name="about_license_title">许可</string>
     <string name="about_license">MIT。按原样提供，不含任何保证。VDExtra 不会绕过 Virtual Desktop 的许可验证，请购买正版。与 Virtual Desktop 无关联。</string>
 </resources>

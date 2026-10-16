@@ -7,11 +7,6 @@ import android.media.MediaPlayer;
 import android.util.Log;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
 
 // Runs inside Virtual Desktop. The Mono hooks only record what VD's own music is doing, in an
 // atomic the poll loop below reads, so no audio call ever happens on a Mono thread.
@@ -25,9 +20,9 @@ final class MusicPlayer {
     private MusicPlayer() {
     }
 
-    static synchronized void start(String path, String moduleApk, float volume) {
+    static synchronized void start(String path, float volume) {
         if (sThread != null) return;
-        sThread = new Thread(() -> run(path, moduleApk, volume), "vdextra-music");
+        sThread = new Thread(() -> run(path, volume), "vdextra-music");
         sThread.setDaemon(true);
         sThread.start();
     }
@@ -36,8 +31,7 @@ final class MusicPlayer {
         return target.startsWith("http://") || target.startsWith("https://");
     }
 
-    private static String resolve(Context ctx, String source, String moduleApk) {
-        if (PrefKeys.MUSIC_BUNDLED.equals(source)) return unpackBundled(ctx, moduleApk);
+    private static String resolve(String source) {
         if (isStream(source)) return source;
         if (new File(source).canRead()) return source;
         Log.w(TAG, "custom music gone: " + source);
@@ -68,7 +62,7 @@ final class MusicPlayer {
         try { mp.release(); } catch (Throwable ignored) { }
     }
 
-    private static void run(String source, String moduleApk, float volume) {
+    private static void run(String source, float volume) {
         Context ctx = awaitContext();
         if (ctx == null) {
             Log.w(TAG, "custom music: no context, falling back to VD");
@@ -76,25 +70,13 @@ final class MusicPlayer {
             return;
         }
 
-        String target = resolve(ctx, source, moduleApk);
+        String target = resolve(source);
         if (target == null) {
             giveUp(ctx);
             return;
         }
         boolean stream = isStream(target);
         MediaPlayer mp = open(target, volume);
-
-        // A stream depends on the network and on someone else's server, so the generated theme
-        // stands in when it cannot be reached rather than leaving the menu silent.
-        if (mp == null && stream) {
-            String local = unpackBundled(ctx, moduleApk);
-            if (local != null) {
-                Log.w(TAG, "stream unavailable, using the bundled theme");
-                target = local;
-                stream = false;
-                mp = open(target, volume);
-            }
-        }
         if (mp == null) {
             giveUp(ctx);
             return;
@@ -128,27 +110,6 @@ final class MusicPlayer {
             try { Thread.sleep(200); } catch (InterruptedException e) { break; }
         }
         close(mp);
-    }
-
-    // MediaPlayer needs a file, and our apk entry is not one, so the theme is copied into
-    // Virtual Desktop's own cache the first time it is used.
-    private static String unpackBundled(Context ctx, String moduleApk) {
-        if (moduleApk == null) return null;
-        File out = new File(ctx.getCacheDir(), "vdextra-theme.ogg");
-        try (ZipFile zf = new ZipFile(moduleApk)) {
-            ZipEntry e = zf.getEntry("assets/music/vdextra.ogg");
-            if (e == null) return null;
-            if (out.isFile() && out.length() == e.getSize()) return out.getAbsolutePath();
-            try (InputStream in = zf.getInputStream(e);
-                 OutputStream o = new FileOutputStream(out)) {
-                byte[] buf = new byte[8192];
-                for (int n; (n = in.read(buf)) > 0; ) o.write(buf, 0, n);
-            }
-            return out.getAbsolutePath();
-        } catch (Throwable t) {
-            Log.w(TAG, "could not unpack the bundled theme", t);
-            return null;
-        }
     }
 
     // Un-mute VD's own track, then tell the app so it can say why.
