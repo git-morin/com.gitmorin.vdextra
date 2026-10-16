@@ -32,6 +32,42 @@ final class MusicPlayer {
         sThread.start();
     }
 
+    private static boolean isStream(String target) {
+        return target.startsWith("http://") || target.startsWith("https://");
+    }
+
+    private static String resolve(Context ctx, String source, String moduleApk) {
+        if (PrefKeys.MUSIC_BUNDLED.equals(source)) return unpackBundled(ctx, moduleApk);
+        if (isStream(source)) return source;
+        if (new File(source).canRead()) return source;
+        Log.w(TAG, "custom music gone: " + source);
+        return null;
+    }
+
+    private static MediaPlayer open(String target, float volume) {
+        MediaPlayer mp = new MediaPlayer();
+        try {
+            mp.setAudioAttributes(new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build());
+            mp.setDataSource(target);
+            mp.setLooping(!isStream(target));   // a live stream has no end to loop
+            mp.setVolume(volume, volume);
+            mp.prepare();
+            return mp;
+        } catch (Throwable t) {
+            Log.w(TAG, "could not open " + target, t);
+            close(mp);
+            return null;
+        }
+    }
+
+    private static void close(MediaPlayer mp) {
+        if (mp == null) return;
+        try { mp.release(); } catch (Throwable ignored) { }
+    }
+
     private static void run(String source, String moduleApk, float volume) {
         Context ctx = awaitContext();
         if (ctx == null) {
@@ -39,36 +75,31 @@ final class MusicPlayer {
             giveUp(null);
             return;
         }
-        String path = PrefKeys.MUSIC_BUNDLED.equals(source)
-                ? unpackBundled(ctx, moduleApk) : source;
-        if (path == null) {
-            Log.w(TAG, "bundled theme unavailable, falling back to VD");
-            giveUp(ctx);
-            return;
-        }
-        if (!new File(path).canRead()) {
-            Log.w(TAG, "custom music gone, falling back to VD: " + path);
-            giveUp(ctx);
-            return;
-        }
 
-        MediaPlayer mp = new MediaPlayer();
-        try {
-            mp.setAudioAttributes(new AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build());
-            mp.setDataSource(path);
-            mp.setLooping(true);
-            mp.setVolume(volume, volume);
-            mp.prepare();
-        } catch (Throwable t) {
-            Log.w(TAG, "custom music unavailable, falling back to VD", t);
-            try { mp.release(); } catch (Throwable ignored) { }
+        String target = resolve(ctx, source, moduleApk);
+        if (target == null) {
             giveUp(ctx);
             return;
         }
-        Log.i(TAG, "custom music ready: " + path + " volume=" + volume);
+        boolean stream = isStream(target);
+        MediaPlayer mp = open(target, volume);
+
+        // A stream depends on the network and on someone else's server, so the generated theme
+        // stands in when it cannot be reached rather than leaving the menu silent.
+        if (mp == null && stream) {
+            String local = unpackBundled(ctx, moduleApk);
+            if (local != null) {
+                Log.w(TAG, "stream unavailable, using the bundled theme");
+                target = local;
+                stream = false;
+                mp = open(target, volume);
+            }
+        }
+        if (mp == null) {
+            giveUp(ctx);
+            return;
+        }
+        Log.i(TAG, "custom music ready: " + target + " volume=" + volume);
 
         int applied = IDLE;
         while (true) {
@@ -76,8 +107,18 @@ final class MusicPlayer {
             try { want = MainModule.nativeMusicState(); } catch (Throwable t) { break; }
             if (want != applied) {
                 try {
-                    if (want == PLAYING && !mp.isPlaying()) mp.start();
-                    else if (want == PAUSED && mp.isPlaying()) mp.pause();
+                    if (want == PLAYING) {
+                        // recreated rather than resumed: a paused live buffer comes back stale
+                        if (mp == null) mp = open(target, volume);
+                        if (mp != null && !mp.isPlaying()) mp.start();
+                    } else if (want == PAUSED && mp != null) {
+                        if (stream) {
+                            close(mp);
+                            mp = null;
+                        } else if (mp.isPlaying()) {
+                            mp.pause();
+                        }
+                    }
                     applied = want;
                 } catch (Throwable t) {
                     Log.w(TAG, "custom music transition failed", t);
@@ -86,7 +127,7 @@ final class MusicPlayer {
             }
             try { Thread.sleep(200); } catch (InterruptedException e) { break; }
         }
-        try { mp.release(); } catch (Throwable ignored) { }
+        close(mp);
     }
 
     // MediaPlayer needs a file, and our apk entry is not one, so the theme is copied into

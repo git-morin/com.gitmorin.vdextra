@@ -335,8 +335,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String musicSourceLabel(SharedPreferences p) {
-        String path = p.getString(PrefKeys.MUSIC_PATH, PrefKeys.MUSIC_BUNDLED);
+        String path = p.getString(PrefKeys.MUSIC_PATH, PrefKeys.MUSIC_DEFAULT);
         if (PrefKeys.MUSIC_VD.equals(path)) return getString(R.string.music_source_vd);
+        if (PrefKeys.MUSIC_PLAZA.equals(path)) return getString(R.string.music_source_plaza);
         if (PrefKeys.MUSIC_BUNDLED.equals(path)) return getString(R.string.music_source_bundled);
         String name = p.getString(PrefKeys.MUSIC_NAME, null);
         return name != null ? name : getString(R.string.music_source_custom);
@@ -345,18 +346,21 @@ public class MainActivity extends AppCompatActivity {
     private void showMusicSourceDialog() {
         String[] labels = {
                 getString(R.string.music_source_vd),
+                getString(R.string.music_source_plaza),
                 getString(R.string.music_source_bundled),
                 getString(R.string.music_source_pick),
         };
+        String[] values = { PrefKeys.MUSIC_VD, PrefKeys.MUSIC_PLAZA, PrefKeys.MUSIC_BUNDLED };
         String path = getSharedPreferences(PrefKeys.NAME, MODE_PRIVATE)
-                .getString(PrefKeys.MUSIC_PATH, PrefKeys.MUSIC_BUNDLED);
+                .getString(PrefKeys.MUSIC_PATH, PrefKeys.MUSIC_DEFAULT);
         int checked = PrefKeys.MUSIC_VD.equals(path) ? 0
-                : PrefKeys.MUSIC_BUNDLED.equals(path) ? 1 : 2;
+                : PrefKeys.MUSIC_PLAZA.equals(path) ? 1
+                : PrefKeys.MUSIC_BUNDLED.equals(path) ? 2 : 3;
         new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.dialog_music_source_title)
                 .setSingleChoiceItems(labels, checked, (d, which) -> {
                     d.dismiss();
-                    if (which == 2) {
+                    if (which == values.length) {
                         try {
                             pickMusic.launch(new String[]{ "audio/*" });
                         } catch (Throwable t) {
@@ -365,8 +369,7 @@ public class MainActivity extends AppCompatActivity {
                         }
                         return;
                     }
-                    save(PrefKeys.MUSIC_PATH,
-                            which == 0 ? PrefKeys.MUSIC_VD : PrefKeys.MUSIC_BUNDLED);
+                    save(PrefKeys.MUSIC_PATH, values[which]);
                     save(PrefKeys.MUSIC_NAME, null);
                     refresh();
                     Toast.makeText(this, getString(R.string.toast_music_format, labels[which]),
