@@ -77,12 +77,21 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Highest stable tag. v1.0 predates the 3-part scheme, so normalise to major.minor.patch.
-          stable_tag=$(git tag -l 'v*' | grep -v -- '-dev\.' | sort -V | tail -1 || true)
+          # Tags are VersionCode-VersionName, which the LSPosed module repo requires. The code
+          # is monotonic by construction, so the highest stable release is an integer sort on
+          # that prefix - no semver ordering quirks. v1.0 predates the scheme, so fall back to
+          # it while it is still the only stable tag.
+          stable_tag=$(git tag -l '[0-9]*-*' | grep -v -- '-dev\.' | sort -t- -k1,1n | tail -1 || true)
+          if [ -n "$stable_tag" ]; then
+            base_name="${stable_tag#*-}"
+          else
+            stable_tag=$(git tag -l 'v*' | grep -v -- '-dev\.' | sort -V | tail -1 || true)
+            base_name="${stable_tag#v}"
+          fi
           if [ -z "$stable_tag" ]; then
             base="0.0.0"; range=""
           else
-            base=$(echo "${stable_tag#v}" | awk -F. '{printf "%d.%d.%d", $1, $2, ($3=="" ? 0 : $3)}')
+            base=$(echo "$base_name" | awk -F. '{printf "%d.%d.%d", $1, $2, ($3=="" ? 0 : $3)}')
             range="$stable_tag..HEAD"
           fi
           major=$(echo "$base" | cut -d. -f1)
@@ -90,14 +99,13 @@ jobs:
           patch=$(echo "$base" | cut -d. -f3)
 
           subjects=$(git log --pretty=%s ${range:+$range})
-          bodies=$(git log --pretty=%B ${range:+$range})
 
-          # Conventional commits: a breaking marker wins, then feat, otherwise a patch. The
-          # breaking footer is matched at the start of a line and with its colon, per the spec -
-          # matching the bare phrase anywhere let a commit message *describing* this rule trip it.
-          if echo "$subjects" | grep -qE '^[a-z]+(\([^)]*\))?!:' || echo "$bodies" | grep -qE '^BREAKING[ -]CHANGE:'; then
+          # Gitmoji drives the bump, since the subjects carry no conventional-commit type.
+          # Anchored at the start of the subject so a commit *describing* a marker cannot trip
+          # it. Shortcodes only, matching the convention the history uses.
+          if echo "$subjects" | grep -q '^:boom:'; then
             major=$((major + 1)); minor=0; patch=0; bump=major
-          elif echo "$subjects" | grep -qE '^feat(\([^)]*\))?:'; then
+          elif echo "$subjects" | grep -qE '^(:sparkles:|:globe_with_meridians:)'; then
             minor=$((minor + 1)); patch=0; bump=minor
           else
             patch=$((patch + 1)); bump=patch
@@ -125,7 +133,7 @@ jobs:
           {
             echo "name=$name"
             echo "code=$code"
-            echo "tag=v$name"
+            echo "tag=$code-$name"
             echo "channel=$channel"
             echo "prerelease=$prerelease"
           } >> "$GITHUB_OUTPUT"

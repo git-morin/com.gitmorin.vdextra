@@ -85,6 +85,8 @@ class Updates {
     }
 
     static String versionOf(String tag) {
+        int dash = tag.indexOf('-');
+        if (dash > 0 && isNumeric(tag.substring(0, dash))) return tag.substring(dash + 1);
         return tag.startsWith("v") ? tag.substring(1) : tag;
     }
 
