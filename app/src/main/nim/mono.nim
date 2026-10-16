@@ -272,14 +272,24 @@ proc charToGlyph(font: MonoObject): MonoObject =
   pFieldGetValue(font, gDictField, addr dict)
   dict
 
+var
+  gContainsKey: MonoMethod
+  gContainsKeyClass: MonoClass
+
 proc dictHasKey(dict: MonoObject, unit: uint16): int =
   if dict == nil or pObjGetClass == nil or pClassGetMethod == nil or
      pRuntimeInvoke == nil or pObjUnbox == nil: return -1
   let dc = pObjGetClass(dict)
   if dc == nil: return -1
-  let m = pClassGetMethod(dc, "ContainsKey", 1)
+  if dc != gContainsKeyClass:
+    gContainsKey = pClassGetMethod(dc, "ContainsKey", 1)
+    gContainsKeyClass = dc
+  let m = gContainsKey
   if m == nil: return -1
-  var key = unit
+  # Widened deliberately: mono_runtime_invoke reads sizeof(parameter) bytes through this
+  # pointer, and a zeroed int32 reads correctly whether the key is a char or an int. A uint16
+  # would leave the upper half of an int key as stack garbage.
+  var key = int32(unit)
   var args: array[1, pointer]
   args[0] = addr key
   var exc: MonoObject = nil

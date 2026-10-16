@@ -100,7 +100,8 @@ public class MainModule extends XposedModule {
                     if (app instanceof Context) {
                         ((Context) app).sendBroadcast(new Intent(UpdateCheckReceiver.ACTION)
                                 .setClassName(BuildConfig.APPLICATION_ID,
-                                        UpdateCheckReceiver.class.getName()));
+                                        UpdateCheckReceiver.class.getName())
+                                .addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES));
                         log(Log.INFO, TAG, "requested update check");
                         return;
                     }

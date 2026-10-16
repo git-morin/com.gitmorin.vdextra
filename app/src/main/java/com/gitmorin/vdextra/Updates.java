@@ -14,6 +14,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.function.IntConsumer;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -32,13 +33,11 @@ class Updates {
 
     static final class Release {
         final String version;
-        final String tag;
         final String apkUrl;
         final long apkSize;
 
-        Release(String version, String tag, String apkUrl, long apkSize) {
+        Release(String version, String apkUrl, long apkSize) {
             this.version = version;
-            this.tag = tag;
             this.apkUrl = apkUrl;
             this.apkSize = apkSize;
         }
@@ -79,7 +78,7 @@ class Updates {
             }
             if (url == null) continue;
 
-            Release r = new Release(versionOf(tag), tag, url, size);
+            Release r = new Release(versionOf(tag), url, size);
             if (best == null || compareVersions(r.version, best.version) > 0) best = r;
         }
         return best;
@@ -184,16 +183,20 @@ class Updates {
             c.disconnect();
         }
         if (out.length() == 0) throw new IOException("downloaded file is empty");
+        if (r.apkSize > 0 && out.length() != r.apkSize) {
+            throw new IOException("download incomplete: " + out.length() + " of " + r.apkSize + " bytes");
+        }
         return out;
     }
 
-    static void install(Context ctx, File apk) throws IOException {
+    static void install(Context ctx, File apk, IntConsumer onSession) throws IOException {
         PackageInstaller pi = ctx.getPackageManager().getPackageInstaller();
         PackageInstaller.SessionParams params =
                 new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
         params.setAppPackageName(ctx.getPackageName());
 
         int sessionId = pi.createSession(params);
+        onSession.accept(sessionId);
         try (PackageInstaller.Session session = pi.openSession(sessionId)) {
             try (InputStream in = new java.io.FileInputStream(apk);
                  OutputStream out = session.openWrite("vdextra", 0, apk.length())) {
