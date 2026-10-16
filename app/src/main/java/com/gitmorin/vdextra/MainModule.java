@@ -59,10 +59,10 @@ public class MainModule extends XposedModule {
             nativeSetDict(ks, vs);
             nativeInit();
             float musicVolume = readFloat(PrefKeys.MUSIC_VOLUME, 1.0f);
-            String musicUri = readString(PrefKeys.MUSIC_URI, null);
+            String musicPath = readString(PrefKeys.MUSIC_PATH, null);
             nativeSetMusicVolume(musicVolume);
-            nativeSetCustomMusic(musicUri != null);
-            if (musicUri != null) MusicPlayer.start(musicVolume);
+            nativeSetCustomMusic(musicPath != null);
+            if (musicPath != null) MusicPlayer.start(musicPath, musicVolume);
             nativeSetQuality(readBool(PrefKeys.DISABLE_QUALITY_SOUND, false), readInt(PrefKeys.QUALITY_MASK, 0x7F));
             nativeSetBitrate(readBool(PrefKeys.BITRATE_EXTEND, false), readBool(PrefKeys.BITRATE_UNLOCK, false), readFloat(PrefKeys.BITRATE_SCALE, 2.0f));
             nativeSetForceLan(readBool(PrefKeys.FORCE_LAN, true));

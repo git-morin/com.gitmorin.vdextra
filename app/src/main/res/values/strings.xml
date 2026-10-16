@@ -57,7 +57,7 @@
     <string name="toast_music_format">Background music set to %1$s. Relaunch Virtual Desktop to apply.</string>
     <string name="toast_music_vd">Virtual Desktop music restored. Relaunch Virtual Desktop to apply.</string>
     <string name="toast_music_no_picker">No file picker available on this device</string>
-    <string name="toast_music_no_access">Could not keep access to that file. Pick it again.</string>
+    <string name="toast_music_no_path">Could not resolve that file to a path. Pick a file from internal storage.</string>
     <string name="notif_channel_music">Background music</string>
     <string name="notif_music_missing_title">Background music unavailable</string>
     <string name="notif_music_missing_text">The chosen file could not be read. Virtual Desktop music was used instead.</string>
