@@ -46,8 +46,9 @@
     <string name="notif_update_text_format">%1$s is ready to install</string>
 
     <string name="section_sound">Sound</string>
-    <string name="sound_no_music_title">Disable background music</string>
-    <string name="sound_no_music_support">Stop auto-playing music while not connected</string>
+    <string name="music_volume_title">Background music volume</string>
+    <string name="music_volume_support">Lower the menu music; at full it keeps the Virtual Desktop level</string>
+    <string name="music_volume_format">%1$d%%</string>
     <string name="sound_no_perf_title">Disable performance cue sounds</string>
     <string name="sound_no_perf_support">Long-press to toggle each cue individually</string>
 

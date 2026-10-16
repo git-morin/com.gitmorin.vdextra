@@ -26,6 +26,7 @@ import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.color.MaterialColors;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.materialswitch.MaterialSwitch;
+import com.google.android.material.slider.Slider;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -61,7 +62,9 @@ public class MainActivity extends AppCompatActivity {
     private boolean installReceiverRegistered;
     private int installSessionId = -1;
     private LinearLayout homeInfoSystem, homeInfoDict;
-    private MaterialSwitch swNoMusic, swNoPerf, swExtend, swUnlock, swForceLan;
+    private MaterialSwitch swNoPerf, swExtend, swUnlock, swForceLan;
+    private Slider slMusicVolume;
+    private TextView musicVolumeValue;
 
     private static void ensureServiceRegistered() {
         if (sRegistered) return;
@@ -95,7 +98,8 @@ public class MainActivity extends AppCompatActivity {
         channelValue = findViewById(R.id.channel_value);
         rowUpdate = findViewById(R.id.row_update);
         updateValue = findViewById(R.id.update_value);
-        swNoMusic = findViewById(R.id.sw_no_music);
+        slMusicVolume = findViewById(R.id.sl_music_volume);
+        musicVolumeValue = findViewById(R.id.music_volume_value);
         swNoPerf = findViewById(R.id.sw_no_perf);
         swExtend = findViewById(R.id.sw_extend);
         swUnlock = findViewById(R.id.sw_unlock);
@@ -106,7 +110,10 @@ public class MainActivity extends AppCompatActivity {
             return true;
         });
 
-        swNoMusic.setOnCheckedChangeListener((v, c) -> save(PrefKeys.DISABLE_MUSIC, c));
+        slMusicVolume.addOnChangeListener((sl, value, fromUser) -> {
+            musicVolumeValue.setText(getString(R.string.music_volume_format, (int) value));
+            save(PrefKeys.MUSIC_VOLUME, value / 100f);
+        });
         swNoPerf.setOnCheckedChangeListener((v, c) -> save(PrefKeys.DISABLE_QUALITY_SOUND, c));
         swExtend.setOnCheckedChangeListener((v, c) -> save(PrefKeys.BITRATE_EXTEND, c));
         swUnlock.setOnCheckedChangeListener((v, c) -> save(PrefKeys.BITRATE_UNLOCK, c));
@@ -216,7 +223,9 @@ public class MainActivity extends AppCompatActivity {
         addInfo(homeInfoDict, R.drawable.ic_dict, getString(R.string.dict_language_title), languageSummary(lang));
 
         binding = true;
-        swNoMusic.setChecked(p.getBoolean(PrefKeys.DISABLE_MUSIC, false));
+        int vol = Math.round(p.getFloat(PrefKeys.MUSIC_VOLUME, 1.0f) * 100f);
+        slMusicVolume.setValue(Math.max(0, Math.min(100, vol)));
+        musicVolumeValue.setText(getString(R.string.music_volume_format, vol));
         swNoPerf.setChecked(p.getBoolean(PrefKeys.DISABLE_QUALITY_SOUND, false));
         swExtend.setChecked(p.getBoolean(PrefKeys.BITRATE_EXTEND, false));
         swUnlock.setChecked(p.getBoolean(PrefKeys.BITRATE_UNLOCK, false));

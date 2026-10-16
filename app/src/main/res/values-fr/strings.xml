@@ -46,8 +46,9 @@
     <string name="notif_update_text_format">%1$s est prête à être installée</string>
 
     <string name="section_sound">Son</string>
-    <string name="sound_no_music_title">Désactiver la musique de fond</string>
-    <string name="sound_no_music_support">Empêcher la lecture automatique de musique hors connexion</string>
+    <string name="music_volume_title">Volume de la musique de fond</string>
+    <string name="music_volume_support">Réduire la musique du menu ; au maximum, le niveau de Virtual Desktop est conservé</string>
+    <string name="music_volume_format">%1$d%%</string>
     <string name="sound_no_perf_title">Désactiver les sons de performance</string>
     <string name="sound_no_perf_support">Appui long pour activer chaque son individuellement</string>
 
