@@ -1,10 +1,20 @@
-vdextra.ogg - "VDExtra Theme"
+Background music sources
+========================
 
-Written for this project and released under the same MIT licence as the rest of
-VDExtra. It is generated, not recorded: tools/gen-theme.py synthesises the loop,
-so the sound is reproducible from source and carries no third-party rights.
+Default: Nightwave Plaza - https://plaza.one
+  An independent online radio. VDExtra streams it directly from their server;
+  nothing is redistributed with this module. The station and the music it plays
+  belong to them and to the respective rights holders. Credited in the in-app
+  about dialog. If their terms ever disallow third-party playback, change
+  PrefKeys.MUSIC_DEFAULT to MUSIC_BUNDLED and drop the preset from the picker.
 
-Replacing it: drop a new file here under the same name and keep this file honest
-about where it came from. Only ship audio the project is allowed to redistribute
-- your own work, or something under a licence that permits it. A bundled track
+Offline fallback: vdextra.ogg - "VDExtra Theme"
+  Written for this project and covered by the same MIT licence as the rest of
+  VDExtra. It is generated, not recorded: tools/gen-theme.py synthesises the
+  loop, so the sound is reproducible from source and carries no third-party
+  rights. Used automatically whenever the stream cannot be reached.
+
+Replacing the fallback: drop a new file here under the same name and keep this
+file honest about where it came from. Only ship audio the project is allowed to
+redistribute - your own work, or a licence that permits it. A bundled track
 reaches every user through a public repository and its releases.

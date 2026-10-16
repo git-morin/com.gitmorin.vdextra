@@ -59,9 +59,9 @@ public class MainModule extends XposedModule {
             nativeSetDict(ks, vs);
             nativeInit();
             float musicVolume = readFloat(PrefKeys.MUSIC_VOLUME, 1.0f);
-            // Defaults to the bundled theme: hearing it is how a user knows the module took
-            // effect without having changed anything.
-            String musicPath = readString(PrefKeys.MUSIC_PATH, PrefKeys.MUSIC_BUNDLED);
+            // Hearing music is how a user knows the module took effect without having changed
+            // anything, so a source is configured by default.
+            String musicPath = readString(PrefKeys.MUSIC_PATH, PrefKeys.MUSIC_DEFAULT);
             boolean custom = !PrefKeys.MUSIC_VD.equals(musicPath);
             nativeSetMusicVolume(musicVolume);
             nativeSetCustomMusic(custom);
