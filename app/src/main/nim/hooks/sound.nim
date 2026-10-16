@@ -7,12 +7,13 @@ const CUE_NAMES = ["PlayPotato", "PlayUltra", "PlayGodlike", "PlayMonster",
 type
   SetFloat1Fn = proc(self: pointer, v: cfloat) {.cdecl, gcsafe.}
   Void2Fn = proc(self, state: pointer) {.cdecl, gcsafe.}
+  Void3Fn = proc(self, sender, args: pointer) {.cdecl, gcsafe.}
 
   MusicFeature* = ref object of Feature
     volume*: Atomic[float32]
     custom*: Atomic[bool]
     state*: Atomic[int] ## 0 unknown, 1 playing, 2 paused; polled by the Java player
-    play, fadeOut, pauseNow, resume, onTimer: Hook
+    play, pause, fadeOut, pauseNow, resume, onTimer, connChanged: Hook
     musicField, sourceField: MonoField
     cls: MonoClass
     setVolume: SetFloat1Fn
@@ -50,22 +51,39 @@ proc applyVolume(self: pointer) =
   if fieldGetPtr(inst, musicFeature.sourceField) == nil: return
   musicFeature.setVolume(inst, cfloat(v))
 
+proc setState(s: int, why: string) =
+  if musicFeature.state.load() == s: return
+  musicFeature.state.store(s)
+  logI("music " & why & " -> " & (if s == 1: "playing" else: "paused"))
+
 proc hookMusicPlay(self: pointer) {.cdecl.} =
   let orig = origAs[VoidFn](musicFeature.play)
   if orig != nil: orig(self)
   guard "music play":
     applyVolume(self)
-    musicFeature.state.store(1)
+    setState(1, "Play")
+
+proc hookMusicPause(self: pointer) {.cdecl.} =
+  let orig = origAs[VoidFn](musicFeature.pause)
+  if orig != nil: orig(self)
+  setState(2, "Pause")
 
 proc hookMusicFadeOut(self: pointer) {.cdecl.} =
   let orig = origAs[VoidFn](musicFeature.fadeOut)
   if orig != nil: orig(self)
-  musicFeature.state.store(2)
+  setState(2, "FadeOut")
 
 proc hookMusicPauseNow(self: pointer) {.cdecl.} =
   let orig = origAs[VoidFn](musicFeature.pauseNow)
   if orig != nil: orig(self)
-  musicFeature.state.store(2)
+  setState(2, "PauseNow")
+
+# Logged, not acted on: the handler carries no new value, so Play/Pause stay the signal. It is
+# here to show in the log which path a connect actually takes.
+proc hookMusicConnChanged(self, sender, args: pointer) {.cdecl.} =
+  let orig = origAs[Void3Fn](musicFeature.connChanged)
+  if orig != nil: orig(self, sender, args)
+  logI("music OnIsConnectedChanged")
 
 # The music timer is the retry clock: Play lands before the source exists, so the volume is
 # re-attempted here until it sticks.
@@ -79,7 +97,7 @@ proc hookMusicResume(self: pointer) {.cdecl.} =
   if orig != nil: orig(self)
   guard "music resume":
     applyVolume(self)
-    musicFeature.state.store(1)
+    setState(1, "Resume")
 
 template defCue(idx: static int, name: untyped) =
   proc name(self: pointer) {.cdecl.} =
@@ -98,7 +116,10 @@ defCue(6, cue6)
 const MUSIC_SYSTEM = "VirtualDesktop.Mobile.MusicSystem, VirtualDesktop.Mobile"
 
 musicFeature.play = newHook(MUSIC_SYSTEM, "Play", 0, cast[pointer](hookMusicPlay))
+musicFeature.pause = newHook(MUSIC_SYSTEM, "Pause", 0, cast[pointer](hookMusicPause))
 musicFeature.fadeOut = newHook(MUSIC_SYSTEM, "FadeOut", 0, cast[pointer](hookMusicFadeOut))
+musicFeature.connChanged = newHook(MUSIC_SYSTEM, "OnIsConnectedChanged", 2,
+                            cast[pointer](hookMusicConnChanged))
 musicFeature.pauseNow = newHook(MUSIC_SYSTEM, "PauseNow", 0, cast[pointer](hookMusicPauseNow))
 musicFeature.resume = newHook(MUSIC_SYSTEM, "Resume", 0, cast[pointer](hookMusicResume))
 musicFeature.onTimer = newHook(MUSIC_SYSTEM, "OnTimer", 1, cast[pointer](hookMusicOnTimer))
@@ -138,7 +159,7 @@ method install*(f: MusicFeature): bool =
   if not f.play.install(cls):
     logE("MusicSystem::Play hook failed")
     return false
-  for h in [f.fadeOut, f.pauseNow, f.resume, f.onTimer]: h.install(cls)
+  for h in [f.pause, f.fadeOut, f.pauseNow, f.resume, f.onTimer, f.connChanged]: h.install(cls)
   logI("hooked MusicSystem::Play, music volume=" & $f.volume.load())
   true
 
