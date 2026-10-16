@@ -27,7 +27,7 @@ class Updates {
     static final String STABLE = "stable";
     static final String DEV = "dev";
 
-    private final String RELEASES_URL = "https://api.github.com/repos/git-morin/vdextra/releases?per_page=30";
+    private final String RELEASES_URL = "https://api.github.com/repos/git-morin/com.gitmorin.vdextra/releases?per_page=30";
     private final String INSTALL_ACTION = "com.gitmorin.vdextra.INSTALL_RESULT";
     private final int TIMEOUT_MS = 15000;
 
