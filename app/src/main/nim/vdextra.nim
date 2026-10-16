@@ -84,6 +84,15 @@ proc Java_com_gitmorin_vdextra_MainModule_nativeSetMusicVolume(
   musicFeature.volume.store(v)
   logI("musicVolume=" & formatFloat(v, ffDecimal, 2))
 
+proc Java_com_gitmorin_vdextra_MainModule_nativeSetCustomMusic(
+    env, cls: pointer, on: bool) {.exportc, cdecl, dynlib.} =
+  musicFeature.custom.store(on)
+  logI("customMusic=" & $on)
+
+proc Java_com_gitmorin_vdextra_MainModule_nativeMusicState(
+    env, cls: pointer): int32 {.exportc, cdecl, dynlib.} =
+  int32(musicFeature.state.load())
+
 proc Java_com_gitmorin_vdextra_MainModule_nativeSetQuality(
     env, thiz: pointer, enable: bool, mask: int32) {.exportc, cdecl, dynlib.} =
   cueSoundsFeature.enabled.store(enable)

@@ -6,9 +6,12 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInstaller;
+import android.database.Cursor;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.OpenableColumns;
 import android.provider.Settings;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -18,6 +21,8 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.android.material.appbar.MaterialToolbar;
@@ -55,7 +60,7 @@ public class MainActivity extends AppCompatActivity {
     private MaterialCardView homeStatus;
     private ImageView homeStatusIcon;
     private TextView homeStatusText, homeStatusSub;
-    private View rowLanguage, rowChannel, rowUpdate;
+    private View rowLanguage, rowChannel, rowUpdate, rowMusicSource;
     private TextView langValue, channelValue, updateValue;
     private Updates.Release pendingUpdate;
     private boolean updateBusy;
@@ -64,7 +69,8 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout homeInfoSystem, homeInfoDict;
     private MaterialSwitch swNoPerf, swExtend, swUnlock, swForceLan;
     private Slider slMusicVolume;
-    private TextView musicVolumeValue;
+    private TextView musicVolumeValue, musicSourceValue;
+    private ActivityResultLauncher<String[]> pickMusic;
 
     private static void ensureServiceRegistered() {
         if (sRegistered) return;
@@ -100,6 +106,8 @@ public class MainActivity extends AppCompatActivity {
         updateValue = findViewById(R.id.update_value);
         slMusicVolume = findViewById(R.id.sl_music_volume);
         musicVolumeValue = findViewById(R.id.music_volume_value);
+        rowMusicSource = findViewById(R.id.row_music_source);
+        musicSourceValue = findViewById(R.id.music_source_value);
         swNoPerf = findViewById(R.id.sw_no_perf);
         swExtend = findViewById(R.id.sw_extend);
         swUnlock = findViewById(R.id.sw_unlock);
@@ -123,9 +131,13 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.row_no_perf).setOnLongClickListener(v -> { showSoundDialog(); return true; });
         findViewById(R.id.row_extend).setOnLongClickListener(v -> { showScaleDialog(); return true; });
 
+        rowMusicSource.setOnClickListener(v -> showMusicSourceDialog());
         rowLanguage.setOnClickListener(v -> showLanguageDialog());
         rowChannel.setOnClickListener(v -> showChannelDialog());
         rowUpdate.setOnClickListener(v -> onUpdateRowClicked());
+
+        pickMusic = registerForActivityResult(
+                new ActivityResultContracts.OpenDocument(), this::onMusicPicked);
 
         ensureServiceRegistered();
         askForNotificationsIfNeeded();
@@ -223,6 +235,11 @@ public class MainActivity extends AppCompatActivity {
         addInfo(homeInfoDict, R.drawable.ic_dict, getString(R.string.dict_language_title), languageSummary(lang));
 
         binding = true;
+        String musicName = p.getString(PrefKeys.MUSIC_NAME, null);
+        musicSourceValue.setText(p.getString(PrefKeys.MUSIC_URI, null) == null
+                ? getString(R.string.music_source_vd)
+                : (musicName != null ? musicName : getString(R.string.music_source_custom)));
+
         int vol = Math.round(p.getFloat(PrefKeys.MUSIC_VOLUME, 1.0f) * 100f);
         slMusicVolume.setValue(Math.max(0, Math.min(100, vol)));
         musicVolumeValue.setText(getString(R.string.music_volume_format, vol));
@@ -253,7 +270,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private static SharedPreferences.Editor put(SharedPreferences.Editor e, String key, Object v) {
-        if (v instanceof Boolean) e.putBoolean(key, (Boolean) v);
+        if (v == null) e.remove(key);
+        else if (v instanceof Boolean) e.putBoolean(key, (Boolean) v);
         else if (v instanceof Integer) e.putInt(key, (Integer) v);
         else if (v instanceof Float) e.putFloat(key, (Float) v);
         else if (v instanceof Long) e.putLong(key, (Long) v);
@@ -311,6 +329,59 @@ public class MainActivity extends AppCompatActivity {
             catch (Throwable ignored) {}
         }
         return getString(R.string.version_not_installed);
+    }
+
+    private void showMusicSourceDialog() {
+        String[] labels = {
+                getString(R.string.music_source_vd),
+                getString(R.string.music_source_pick),
+        };
+        boolean custom = getSharedPreferences(PrefKeys.NAME, MODE_PRIVATE)
+                .getString(PrefKeys.MUSIC_URI, null) != null;
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.dialog_music_source_title)
+                .setSingleChoiceItems(labels, custom ? 1 : 0, (d, which) -> {
+                    d.dismiss();
+                    if (which == 0) {
+                        save(PrefKeys.MUSIC_URI, null);
+                        save(PrefKeys.MUSIC_NAME, null);
+                        refresh();
+                        Toast.makeText(this, R.string.toast_music_vd, Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    try {
+                        pickMusic.launch(new String[]{ "audio/*" });
+                    } catch (Throwable t) {
+                        Toast.makeText(this, R.string.toast_music_no_picker, Toast.LENGTH_LONG).show();
+                    }
+                })
+                .show();
+    }
+
+    private void onMusicPicked(Uri uri) {
+        if (uri == null) return;
+        try {
+            getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } catch (Throwable t) {
+            Toast.makeText(this, R.string.toast_music_no_access, Toast.LENGTH_LONG).show();
+            return;
+        }
+        save(PrefKeys.MUSIC_URI, uri.toString());
+        save(PrefKeys.MUSIC_NAME, displayName(uri));
+        refresh();
+        Toast.makeText(this, getString(R.string.toast_music_format, displayName(uri)),
+                Toast.LENGTH_LONG).show();
+    }
+
+    private String displayName(Uri uri) {
+        try (Cursor c = getContentResolver().query(uri, null, null, null, null)) {
+            if (c != null && c.moveToFirst()) {
+                int i = c.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (i >= 0 && !c.isNull(i)) return c.getString(i);
+            }
+        } catch (Throwable ignored) { }
+        String last = uri.getLastPathSegment();
+        return last != null ? last : uri.toString();
     }
 
     private void showLanguageDialog() {

@@ -49,6 +49,19 @@
     <string name="music_volume_title">Volume de la musique de fond</string>
     <string name="music_volume_support">Réduire la musique du menu ; au maximum, le niveau de Virtual Desktop est conservé</string>
     <string name="music_volume_format">%1$d%%</string>
+    <string name="music_source_title">Musique de fond</string>
+    <string name="music_source_vd">Musique de Virtual Desktop</string>
+    <string name="music_source_custom">Fichier personnalisé</string>
+    <string name="music_source_pick">Choisir un fichier...</string>
+    <string name="dialog_music_source_title">Choisir la musique de fond</string>
+    <string name="toast_music_format">Musique de fond définie sur %1$s. Relancez Virtual Desktop pour appliquer.</string>
+    <string name="toast_music_vd">Musique de Virtual Desktop restaurée. Relancez Virtual Desktop pour appliquer.</string>
+    <string name="toast_music_no_picker">Aucun sélecteur de fichiers disponible sur cet appareil</string>
+    <string name="toast_music_no_access">Impossible de conserver l accès à ce fichier. Sélectionnez-le à nouveau.</string>
+    <string name="notif_channel_music">Musique de fond</string>
+    <string name="notif_music_missing_title">Musique de fond indisponible</string>
+    <string name="notif_music_missing_text">Le fichier choisi est illisible. La musique de Virtual Desktop a été utilisée.</string>
+    <string name="notif_music_missing_text_format">%1$s est illisible. La musique de Virtual Desktop a été utilisée.</string>
     <string name="sound_no_perf_title">Désactiver les sons de performance</string>
     <string name="sound_no_perf_support">Appui long pour activer chaque son individuellement</string>
 
