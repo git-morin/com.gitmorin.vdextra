@@ -2,40 +2,31 @@
 
 <img width="160" height="160" alt="VDExtra app icon" src="app/src/main/res/drawable/ic_launcher.png" />
 
-An Xposed module that adds quality-of-life features to **Virtual Desktop**, the VR streaming
-client — UI translation, bitrate limits, sound control and LAN discovery.
+Xposed module that adds features to **Virtual Desktop** for VR.
 
-> arm64-v8a · libxposed API 102 (LSPosed / Vector) · verified on Quest 3 with Virtual Desktop 1.34.22
+⚠️ EARLY STAGE ⚠️
 
-Forked from [ghitori/vdplus](https://github.com/ghitori/vdplus); see [License](#license).
+This project is in its early stages. Currently tested only on my own personal hardware:
+- 
 
 ## Features
 
-- **Interface translation** — inject a translation over Virtual Desktop's English UI. Follows
-  your system language by default, falls back to English, and any bundled language can be picked
-  explicitly. Includes a CJK font fix.
-- **Extended bitrate range** — raise the desktop / VR max bitrate (1–3× multiplier, default 2×).
-- **Remove auto speed-test bitrate cap** — reapply settings without the post-speedtest cap.
-- **Disable background music** — stop auto-playing music while not connected.
-- **Disable performance cue sounds** — mute any of the 7 cue sounds individually.
-- **Force LAN discovery** — keep finding local PCs even when the remote server is unreachable,
-  for restrictive networks.
-- **In-app updates** — stable or dev channel, checked on launch and installable from the app.
+- **Interface translation**: Translate VD's UI in one of the currently supported languages
+  - Contributions to new languages are welcomed. Feel free to submit a merge request (see the [translation doc](docs/translations.md))
+- **Extend bitrate range**: Increase the allowed maximum bitrate between VD and the connected machine.
+  - ⚠️ Make sure to stay within your bandwidth, you will get choppy performance if you push this beyond your capacity.
+- **Remove internal bitrate cap**: Prevent the measured bandwidth (internally from VD) from throttling what actually gets streamed.
+  - ⚠️ Does not magically give you bandwidth. This is to prevent VD for meddling with the bitrate's current value when it does its own internal bandwidth check.
+  - Generally you want this active if you use `Extend bitrate range` 
+- **Disable background music**: Prevent music from playing when VD isn't connected to a machine.
+- **Disable performance cue sounds**: Mute the sounds that are added when you edit the performance slider.
+- **Force LAN discovery**: Find local PCs even when the remote server is unreachable (for restrictive networks).
 
 ## Install
 
-1. Download `vdextra-<version>.apk` from [Releases](../../releases) and install it.
-2. Enable **VDExtra** in your Xposed manager; its static scope defaults to Virtual Desktop.
-3. Force-stop and restart Virtual Desktop.
-
-Later versions can update themselves from **Options → Updates**.
-
-## Docs
-
-- [Adding a translation](docs/translations.md) — drop in a dictionary, how a language is chosen,
-  and the font caveat to know before adding a non-Latin script.
-- [Building](docs/building.md) — toolchain, the `make` loop, and how Nim fits into the native
-  build.
+1. Download `vdextra-<version>.apk` from [Releases](../../releases) or the Xposed modules repo and install it.
+2. Enable **VDExtra** in your Xposed manager; its static scope should default to Virtual Desktop.
+3. Restart Virtual Desktop if it was running. This is required whenever you change the module config.
 
 ## Notes
 
@@ -50,6 +41,3 @@ Later versions can update themselves from **Options → Updates**.
 ([ghitori/vdplus](https://github.com/ghitori/vdplus)), relicensed and maintained independently
 under the same terms; all credit for the original design and native-hook implementation is
 theirs. Modifications © git-morin.
-
-This fork changes the app identity (package, icon), translates the module's own UI, and rewrote
-the native layer in Nim.

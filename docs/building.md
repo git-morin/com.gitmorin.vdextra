@@ -22,10 +22,14 @@ make logs              follow the VDExtra log
 make tombstones-clean  cleanup developpment session
 ```
 
-## Why Dobby is vendored
+## Why Dobby, and not the framework's hooks
 
-Hooks go through a vendored copy of [Dobby](https://github.com/JingMatrix/Dobby) rather than the
+Hooks go through [Dobby](https://github.com/JingMatrix/Dobby) rather than the
 host framework's `hook_func`. Registering as a `native_init.list` module makes the framework
 install a global inline hook on the linker's own `do_dlopen`, and on this device that corrupts
 register state in unrelated linker code, crashing the process on its next unrelated `dlopen`.
 Never hooking `do_dlopen` at all sidesteps it.
+
+CMake fetches Dobby at configure time, pinned to a commit rather than a branch: it is the
+hooking engine, so moving it is changing the engine underneath a working module. Building
+therefore needs network access the first time a build directory is configured.

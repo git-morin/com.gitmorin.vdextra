@@ -5,7 +5,15 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(DOBBY_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
 set(DOBBY_BUILD_TEST OFF CACHE BOOL "" FORCE)
-add_subdirectory(dobby)
+
+include(FetchContent)
+# Pinned by sha, not a branch: Dobby is the hooking engine, so moving it is changing the engine
+# underneath a working module. This is the tree that used to be vendored here.
+FetchContent_Declare(dobby
+  GIT_REPOSITORY https://github.com/JingMatrix/Dobby.git
+  GIT_TAG 05a09ac6807a6bb1726350e40ea4b127c1c79809
+)
+FetchContent_MakeAvailable(dobby)
 set(NIM_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../nim)
 set(NIM_CACHE ${CMAKE_CURRENT_BINARY_DIR}/nimcache)
 
