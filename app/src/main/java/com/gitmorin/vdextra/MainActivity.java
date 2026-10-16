@@ -38,7 +38,6 @@ import io.github.libxposed.service.XposedServiceHelper;
 
 public class MainActivity extends AppCompatActivity {
 
-    // The listener is a global static and must be a singleton, otherwise callbacks would reach a stale Activity after recreation
     private static volatile XposedService sService = null;
     private static MainActivity sCurrent = null;
     private static boolean sRegistered = false;
@@ -125,11 +124,6 @@ public class MainActivity extends AppCompatActivity {
         refresh();
     }
 
-    /**
-     * The launch-triggered update notification is posted from a receiver, which cannot ask for
-     * anything, so the permission has to be in hand before Virtual Desktop ever starts. Granted
-     * at install time below API 33, where this is a no-op.
-     */
     private void askForNotificationsIfNeeded() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return;
         if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
@@ -293,10 +287,6 @@ public class MainActivity extends AppCompatActivity {
         return getString(R.string.version_not_installed);
     }
 
-    /**
-     * Offers English plus every dictionary bundled in {@code assets/dict/}, so a newly added
-     * language shows up here on its own without any change to this screen.
-     */
     private void showLanguageDialog() {
         List<String> tags = new ArrayList<>();
         tags.add(Languages.OFF);
@@ -324,12 +314,6 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-    /**
-     * The selected language, or - while the user has never picked one - whatever the system's
-     * own languages resolve to. An explicit choice of English is stored as {@link Languages#OFF}
-     * and so stays distinguishable from "not chosen yet", which is what makes that fallback
-     * stop applying the moment the user picks anything.
-     */
     private String currentChannel() {
         return Updates.channelOf(getSharedPreferences(PrefKeys.NAME, MODE_PRIVATE)
                 .getString(PrefKeys.UPDATE_CHANNEL, Updates.STABLE));
@@ -348,7 +332,7 @@ public class MainActivity extends AppCompatActivity {
                 .setTitle(R.string.dialog_channel_title)
                 .setSingleChoiceItems(labels, checked, (d, which) -> {
                     save(PrefKeys.UPDATE_CHANNEL, channels[which]);
-                    // Whatever was found on the old channel no longer applies.
+
                     pendingUpdate = null;
                     d.dismiss();
                     refresh();
@@ -356,7 +340,6 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-    /** First tap checks; once something is found, the same row installs it. */
     private void onUpdateRowClicked() {
         if (updateBusy) return;
         if (pendingUpdate != null) startInstall(pendingUpdate);
@@ -390,7 +373,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startInstall(Updates.Release r) {
-        // Without this the session is created and then fails with nothing useful to show.
+
         if (!Updates.canInstall(this)) {
             Toast.makeText(this, R.string.update_needs_permission, Toast.LENGTH_LONG).show();
             try {
@@ -425,7 +408,7 @@ public class MainActivity extends AppCompatActivity {
         @Override public void onReceive(Context c, Intent i) {
             int status = i.getIntExtra(PackageInstaller.EXTRA_STATUS, -1);
             if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
-                // The system wants to ask the user itself; this is the normal path, not an error.
+
                 Intent confirm = i.getParcelableExtra(Intent.EXTRA_INTENT);
                 if (confirm != null) {
                     confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -453,7 +436,6 @@ public class MainActivity extends AppCompatActivity {
         return Languages.isOff(tag) ? getString(R.string.lang_off) : Languages.displayName(tag);
     }
 
-    /** Language plus how much of the UI it covers, e.g. "中文 · 340 entries". */
     private String languageSummary(String tag) {
         return Languages.isOff(tag) ? getString(R.string.lang_off)
                 : getString(R.string.lang_entry_format, Languages.displayName(tag), bundledCount(tag));

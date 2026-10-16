@@ -15,7 +15,6 @@ import java.util.zip.ZipFile;
 import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam;
 
-/** Module entry point: loads the native hooks inside the Virtual Desktop process and applies settings. */
 public class MainModule extends XposedModule {
     private static final String TAG = "VDExtra";
 
@@ -48,9 +47,7 @@ public class MainModule extends XposedModule {
         hookRuntimeInit(param.getDefaultClassLoader());
 
         try {
-            // No stored choice means the user has never picked one, so follow the system's own
-            // languages. An explicit choice of English is stored as an empty tag, which is why
-            // this distinguishes "unset" from "set to English" rather than defaulting on blank.
+
             String lang = readString(PrefKeys.UI_LANGUAGE, null);
             boolean fromSystem = lang == null;
             if (fromSystem) lang = Languages.systemDefault(Languages.available(moduleApk));
@@ -73,17 +70,6 @@ public class MainModule extends XposedModule {
         }
     }
 
-    // mono.MonoPackageManager.LoadApplication (reached via MonoRuntimeProvider.attachInfo,
-    // one of the earliest ContentProvider lifecycle calls in the process) calls
-    // System.loadLibrary("monosgen-2.0") and then, synchronously on the same thread,
-    // mono.android.Runtime.initInternal(...) - the real native bootstrap (mono_jit_init /
-    // monovm_initialize etc.), which doesn't return until Mono is fully initialized.
-    // Hooking initInternal directly - an ordinary Xamarin-authored static method, not a
-    // native-library-loading method - avoids the caller-classloader stack-walking fragility
-    // that broke hooking System.loadLibrary itself (see prior commit). Letting the real call
-    // complete via chain.proceed() before touching native code means nativeCheckMono() runs
-    // on the exact thread that just finished Mono's own bootstrap - no foreign-thread attach
-    // needed, unlike the background poll thread (nativeInit), which stays as a fallback.
     private void hookRuntimeInit(ClassLoader cl) {
         try {
             Class<?> runtimeCls = Class.forName("mono.android.Runtime", false, cl);
@@ -105,16 +91,6 @@ public class MainModule extends XposedModule {
         }
     }
 
-    /**
-     * Asks VDExtra to check for an update, now that Virtual Desktop is starting.
-     *
-     * <p>Only a broadcast is sent from here. Doing the check in this process would run it under
-     * Virtual Desktop's identity, so any notification would appear to come from Virtual Desktop
-     * and would need Virtual Desktop to hold the notification permission.
-     *
-     * <p>There is no Context handed to a module, and ActivityThread has none to give this early
-     * in the process, so this waits for one on a thread of its own rather than blocking startup.
-     */
     private void requestUpdateCheck() {
         new Thread(() -> {
             for (int i = 0; i < 30; i++) {
@@ -137,19 +113,13 @@ public class MainModule extends XposedModule {
         }, "vdextra-update-check").start();
     }
 
-    /**
-     * Loads the bundled dictionary for {@code lang}, or nothing at all when the user picked
-     * English - which is simply the absence of any translation, since every string the dictionary
-     * doesn't contain passes through untouched.
-     */
     private Map<String, String> loadBuiltinDict(String moduleApk, String lang) {
         Map<String, String> m = new LinkedHashMap<>();
         if (moduleApk == null || Languages.isOff(lang)) return m;
         try (ZipFile zf = new ZipFile(moduleApk)) {
             ZipEntry e = zf.getEntry(Languages.apkEntry(lang));
             if (e == null) {
-                // A language that was removed in an update, or a hand-edited pref: fall back to
-                // English rather than failing the whole init.
+
                 log(Log.WARN, TAG, "no bundled dictionary for language " + lang);
                 return m;
             }

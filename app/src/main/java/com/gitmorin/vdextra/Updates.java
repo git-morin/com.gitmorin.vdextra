@@ -30,7 +30,6 @@ class Updates {
     private final String INSTALL_ACTION = "com.gitmorin.vdextra.INSTALL_RESULT";
     private final int TIMEOUT_MS = 15000;
 
-    /** A release on the chosen channel, as GitHub describes it. */
     static final class Release {
         final String version;
         final String tag;
@@ -49,11 +48,6 @@ class Updates {
         return DEV.equals(pref) ? DEV : STABLE;
     }
 
-    /**
-     * Newest release on {@code channel} that actually carries an APK, or null if there is none.
-     * The stable channel ignores prereleases; the dev channel takes whichever is newest, so a
-     * stable release still reaches dev users once it overtakes the last prerelease.
-     */
     static Release latest(String channel) throws IOException {
         String body = get(RELEASES_URL);
         JSONArray arr;
@@ -95,10 +89,6 @@ class Updates {
         return tag.startsWith("v") ? tag.substring(1) : tag;
     }
 
-    /**
-     * Semver precedence, which is why nothing here duplicates the versionCode arithmetic the
-     * release workflow packs into the APK: 1.1.0 outranks 1.1.0-dev.45, which outranks 1.0.0.
-     */
     static int compareVersions(String a, String b) {
         String[] av = a.split("-", 2);
         String[] bv = b.split("-", 2);
@@ -108,7 +98,7 @@ class Updates {
 
         boolean aPre = av.length > 1;
         boolean bPre = bv.length > 1;
-        if (aPre != bPre) return aPre ? -1 : 1;   // a release outranks any prerelease of it
+        if (aPre != bPre) return aPre ? -1 : 1;
         if (!aPre) return 0;
         return comparePrerelease(av[1], bv[1]);
     }
@@ -134,7 +124,7 @@ class Updates {
             if (yi.isEmpty()) return 1;
             boolean xn = isNumeric(xi), yn = isNumeric(yi);
             if (xn && yn) return Integer.compare(Integer.parseInt(xi), Integer.parseInt(yi));
-            if (xn != yn) return xn ? -1 : 1;     // numeric identifiers rank below alphanumeric
+            if (xn != yn) return xn ? -1 : 1;
             return xi.compareTo(yi);
         }
         return 0;
@@ -155,8 +145,7 @@ class Updates {
         HttpURLConnection c = open(url);
         try {
             int code = c.getResponseCode();
-            // The releases endpoint answers 404 rather than 403 for a repository the caller
-            // cannot see, so an anonymous check against a private repo lands here.
+
             if (code == HttpURLConnection.HTTP_NOT_FOUND) {
                 throw new IOException("releases are not public (HTTP 404)");
             }
@@ -179,7 +168,6 @@ class Updates {
         return c;
     }
 
-    /** Downloads the release APK into the cache directory, replacing any earlier one. */
     static File download(Context ctx, Release r) throws IOException {
         File out = new File(ctx.getCacheDir(), "update.apk");
         HttpURLConnection c = open(r.apkUrl);
@@ -199,12 +187,6 @@ class Updates {
         return out;
     }
 
-    /**
-     * Hands the APK to the system installer. Uses PackageInstaller rather than an ACTION_VIEW
-     * intent so no FileProvider has to be declared for a file we only ever pass to the system.
-     * The user still gets the install prompt, and must have allowed this app to install
-     * packages.
-     */
     static void install(Context ctx, File apk) throws IOException {
         PackageInstaller pi = ctx.getPackageManager().getPackageInstaller();
         PackageInstaller.SessionParams params =
@@ -232,7 +214,6 @@ class Updates {
         return INSTALL_ACTION;
     }
 
-    /** Whether the system will let us install at all; without this the session fails silently. */
     static boolean canInstall(Context ctx) {
         return ctx.getPackageManager().canRequestPackageInstalls();
     }

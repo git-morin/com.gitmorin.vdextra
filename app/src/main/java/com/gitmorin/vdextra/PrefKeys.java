@@ -2,7 +2,6 @@ package com.gitmorin.vdextra;
 
 import lombok.experimental.UtilityClass;
 
-/** SharedPreferences name and key constants shared between {@link MainActivity} and {@link MainModule}. */
 @UtilityClass
 class PrefKeys {
     final String NAME = "vdextra";
