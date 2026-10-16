@@ -5,8 +5,10 @@ on:
     branches: [ main, dev ]
   workflow_dispatch:
 
+# Read by default so the jobs running third-party actions cannot touch releases; only the
+# release job, which runs first-party actions only, is granted write.
 permissions:
-  contents: write
+  contents: read
 
 # Serialised per branch: the version job reads the tags its predecessor published, and the dev
 # prune deletes every prerelease but its own, so overlapping runs would drop a release or
@@ -22,10 +24,10 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Nim
-        uses: jiro4989/setup-nim-action@v2
+        uses: jiro4989/setup-nim-action@189b145833368cc92f1e7b3e166a25a3e057a693 # v2
         with:
           nim-version: ${{ env.NIM_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -66,7 +68,7 @@ jobs:
       prerelease: ${{ steps.v.outputs.prerelease }}
       publish: ${{ steps.v.outputs.publish }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -162,7 +164,7 @@ jobs:
           } > changelog.md
           cat changelog.md
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: changelog
           path: changelog.md
@@ -171,10 +173,10 @@ jobs:
     needs: version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: '17'
@@ -196,7 +198,7 @@ jobs:
       # Part of the native code is Nim, which CMake runs as a code generator: it emits C that the
       # NDK's clang compiles. Pinned so a Nim release cannot change codegen under us.
       - name: Set up Nim
-        uses: jiro4989/setup-nim-action@v2
+        uses: jiro4989/setup-nim-action@189b145833368cc92f1e7b3e166a25a3e057a693 # v2
         with:
           nim-version: ${{ env.NIM_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -229,7 +231,7 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk \
              "dist/vdextra-${{ needs.version.outputs.name }}.apk"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: vdextra-${{ needs.version.outputs.name }}
           path: dist/*.apk
@@ -237,21 +239,28 @@ jobs:
   release:
     needs: [ version, build ]
     # Only a real push to main or dev publishes. A manual dispatch just leaves an artifact,
-    # which is what the local build-and-install loop wants.
-    if: github.event_name == 'push' && needs.version.outputs.publish == 'true'
+    # which is what the local build-and-install loop wants. The owner check keeps a fork, or
+    # anyone who reaches a branch here, from publishing under this repo's name.
+    if: >-
+      github.event_name == 'push'
+      && needs.version.outputs.publish == 'true'
+      && github.repository == 'git-morin/com.gitmorin.vdextra'
+      && github.actor == 'git-morin'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
           fetch-tags: true
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: vdextra-${{ needs.version.outputs.name }}
           path: dist
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: changelog
 
