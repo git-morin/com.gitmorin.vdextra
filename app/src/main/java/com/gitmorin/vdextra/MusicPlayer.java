@@ -6,6 +6,8 @@ import android.media.AudioAttributes;
 import android.media.MediaPlayer;
 import android.util.Log;
 
+import java.io.File;
+
 // Runs inside Virtual Desktop. The Mono hooks only record what VD's own music is doing, in an
 // atomic the poll loop below reads, so no audio call ever happens on a Mono thread.
 final class MusicPlayer {
@@ -18,18 +20,23 @@ final class MusicPlayer {
     private MusicPlayer() {
     }
 
-    static synchronized void start(float volume) {
+    static synchronized void start(String path, float volume) {
         if (sThread != null) return;
-        sThread = new Thread(() -> run(volume), "vdextra-music");
+        sThread = new Thread(() -> run(path, volume), "vdextra-music");
         sThread.setDaemon(true);
         sThread.start();
     }
 
-    private static void run(float volume) {
+    private static void run(String path, float volume) {
         Context ctx = awaitContext();
         if (ctx == null) {
             Log.w(TAG, "custom music: no context, falling back to VD");
             giveUp(null);
+            return;
+        }
+        if (!new File(path).canRead()) {
+            Log.w(TAG, "custom music gone, falling back to VD: " + path);
+            giveUp(ctx);
             return;
         }
 
@@ -39,7 +46,7 @@ final class MusicPlayer {
                     .setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                     .build());
-            mp.setDataSource(ctx, MusicProvider.CURRENT);
+            mp.setDataSource(path);
             mp.setLooping(true);
             mp.setVolume(volume, volume);
             mp.prepare();
@@ -49,7 +56,7 @@ final class MusicPlayer {
             giveUp(ctx);
             return;
         }
-        Log.i(TAG, "custom music ready, volume=" + volume);
+        Log.i(TAG, "custom music ready: " + path + " volume=" + volume);
 
         int applied = IDLE;
         while (true) {

@@ -17,10 +17,6 @@
         android:name="io.github.libxposed.service.XposedProvider"
         android:authorities="com.gitmorin.vdextra.XposedService"
         android:exported="true" />
-    <provider
-        android:name=".MusicProvider"
-        android:authorities="com.gitmorin.vdextra.music"
-        android:exported="true" />
     <receiver
         android:name=".MusicMissingReceiver"
         android:exported="true">

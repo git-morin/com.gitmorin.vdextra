@@ -11,7 +11,9 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.provider.OpenableColumns;
+import android.os.Environment;
+import android.provider.DocumentsContract;
+import android.provider.MediaStore;
 import android.provider.Settings;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -236,7 +238,7 @@ public class MainActivity extends AppCompatActivity {
 
         binding = true;
         String musicName = p.getString(PrefKeys.MUSIC_NAME, null);
-        musicSourceValue.setText(p.getString(PrefKeys.MUSIC_URI, null) == null
+        musicSourceValue.setText(p.getString(PrefKeys.MUSIC_PATH, null) == null
                 ? getString(R.string.music_source_vd)
                 : (musicName != null ? musicName : getString(R.string.music_source_custom)));
 
@@ -337,13 +339,13 @@ public class MainActivity extends AppCompatActivity {
                 getString(R.string.music_source_pick),
         };
         boolean custom = getSharedPreferences(PrefKeys.NAME, MODE_PRIVATE)
-                .getString(PrefKeys.MUSIC_URI, null) != null;
+                .getString(PrefKeys.MUSIC_PATH, null) != null;
         new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.dialog_music_source_title)
                 .setSingleChoiceItems(labels, custom ? 1 : 0, (d, which) -> {
                     d.dismiss();
                     if (which == 0) {
-                        save(PrefKeys.MUSIC_URI, null);
+                        save(PrefKeys.MUSIC_PATH, null);
                         save(PrefKeys.MUSIC_NAME, null);
                         refresh();
                         Toast.makeText(this, R.string.toast_music_vd, Toast.LENGTH_LONG).show();
@@ -360,28 +362,52 @@ public class MainActivity extends AppCompatActivity {
 
     private void onMusicPicked(Uri uri) {
         if (uri == null) return;
-        try {
-            getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        } catch (Throwable t) {
-            Toast.makeText(this, R.string.toast_music_no_access, Toast.LENGTH_LONG).show();
+        String path = pathOf(uri);
+        if (path == null) {
+            Toast.makeText(this, R.string.toast_music_no_path, Toast.LENGTH_LONG).show();
             return;
         }
-        save(PrefKeys.MUSIC_URI, uri.toString());
-        save(PrefKeys.MUSIC_NAME, displayName(uri));
+        String name = new File(path).getName();
+        save(PrefKeys.MUSIC_PATH, path);
+        save(PrefKeys.MUSIC_NAME, name);
         refresh();
-        Toast.makeText(this, getString(R.string.toast_music_format, displayName(uri)),
-                Toast.LENGTH_LONG).show();
+        Toast.makeText(this, getString(R.string.toast_music_format, name), Toast.LENGTH_LONG).show();
     }
 
-    private String displayName(Uri uri) {
-        try (Cursor c = getContentResolver().query(uri, null, null, null, null)) {
-            if (c != null && c.moveToFirst()) {
-                int i = c.getColumnIndex(OpenableColumns.DISPLAY_NAME);
-                if (i >= 0 && !c.isNull(i)) return c.getString(i);
+    // Virtual Desktop reads the file itself, so the picked document has to resolve to a real
+    // path: a content uri would be useless there, since package visibility hides our process
+    // from it and it holds no grant of ours.
+    private String pathOf(Uri uri) {
+        try {
+            if ("file".equals(uri.getScheme())) return uri.getPath();
+            if (DocumentsContract.isDocumentUri(this, uri)) {
+                String id = DocumentsContract.getDocumentId(uri);
+                String[] parts = id.split(":", 2);
+                if ("com.android.externalstorage.documents".equals(uri.getAuthority())
+                        && parts.length == 2) {
+                    if ("primary".equalsIgnoreCase(parts[0])) {
+                        return new File(Environment.getExternalStorageDirectory(), parts[1])
+                                .getAbsolutePath();
+                    }
+                    return "/storage/" + parts[0] + "/" + parts[1];
+                }
+                if ("com.android.providers.media.documents".equals(uri.getAuthority())
+                        && parts.length == 2) {
+                    return queryPath(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, parts[1]);
+                }
             }
+            if ("content".equals(uri.getScheme())) return queryPath(uri, null);
         } catch (Throwable ignored) { }
-        String last = uri.getLastPathSegment();
-        return last != null ? last : uri.toString();
+        return null;
+    }
+
+    private String queryPath(Uri base, String id) {
+        String sel = id == null ? null : "_id=?";
+        String[] args = id == null ? null : new String[]{ id };
+        try (Cursor c = getContentResolver().query(base, new String[]{ "_data" }, sel, args, null)) {
+            if (c != null && c.moveToFirst() && !c.isNull(0)) return c.getString(0);
+        } catch (Throwable ignored) { }
+        return null;
     }
 
     private void showLanguageDialog() {
