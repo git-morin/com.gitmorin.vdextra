@@ -3,4 +3,5 @@
     <string name="url_author" translatable="false">https://github.com/git-morin</string>
     <string name="url_upstream" translatable="false">https://github.com/ghitori/vdplus</string>
     <string name="url_plaza" translatable="false">https://plaza.one</string>
+    <string name="url_potatoru" translatable="false">https://github.com/potatoru</string>
 </resources>

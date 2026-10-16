@@ -6,7 +6,7 @@
   <a href="../../releases"><img alt="dev release" src="https://img.shields.io/github/v/release/git-morin/com.gitmorin.vdextra?display_name=release&include_prereleases&label=dev&color=orange"></a>
 </div>
 
-Xposed module that adds features to **Virtual Desktop** (VR).
+Xposed module and application to add extra features to **Virtual Desktop** (VR).
 
 > Does not circumvent the license requirement from the application. Please buy the software it is worth it!
 
@@ -29,8 +29,9 @@ If you meet these two major issues then please open an issue with your hardware 
 - **Remove internal bitrate cap**: Prevent the measured bandwidth (internally from VD) from throttling what actually gets streamed.
   - ⚠️ Does not magically give you bandwidth. This is to prevent VD for meddling with the bitrate's current value when it does its own internal bandwidth check.
   - Generally you want this active if you use `Extend bitrate range` 
-- **Customize background music**: Change the song and at which volume music is playing when VD isn't connected to a machine.
-  - You need the music locally in the headset for this to work. 
+- **Custom background music**: Change the song and volume of the music playing when VD isn't connected to a machine.
+  - You need the music locally in the device for this to work. 
+  - By default, connects to [Nightwave Plaza](https://plaza.one/)
 - **Disable performance cue sounds**: Mute the sounds that are added when you edit the performance slider.
 - **Force LAN discovery**: Find local PCs even when the remote server is unreachable (for restrictive networks).
 
@@ -38,12 +39,11 @@ If you meet these two major issues then please open an issue with your hardware 
 
 1. Download `vdextra-<version>.apk` from [Releases](../../releases) or the Xposed modules repo and install it.
 2. Enable **VDExtra** in your Xposed manager; its static scope should default to Virtual Desktop.
-3. Restart Virtual Desktop if it was running. This is required whenever you change the module config.
+   1. Make sure the **Virtual Desktop** app is checked in the module's app scope. 
+3. Restart Virtual Desktop if it was running. This is required whenever you change the module's config.
+   1. Open the companion app to configure the module further than its default.
 
 
 ## License
 
-[MIT](LICENSE). Original work © [ghitori](https://github.com/ghitori)
-([ghitori/vdplus](https://github.com/ghitori/vdplus)), relicensed and maintained independently
-under the same terms; all credit for the original design and native-hook implementation is
-theirs. Modifications © git-morin.
+[MIT](LICENSE). Forked from original by [ghitori](https://github.com/ghitori) ([ghitori/vdplus](https://github.com/ghitori/vdplus))
