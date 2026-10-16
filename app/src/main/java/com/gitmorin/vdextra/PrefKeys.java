@@ -11,6 +11,10 @@ class PrefKeys {
     final String LAST_UPDATE_CHECK = "last_update_check";
     final String MUSIC_VOLUME = "music_volume";
     final String MUSIC_PATH = "music_path";
+
+    /** MUSIC_PATH values that are not a file; absent means the bundled theme. */
+    final String MUSIC_VD = "vd";
+    final String MUSIC_BUNDLED = "bundled";
     final String MUSIC_NAME = "music_name";
     final String DISABLE_QUALITY_SOUND = "disable_quality_sound";
     final String QUALITY_MASK = "quality_mask";

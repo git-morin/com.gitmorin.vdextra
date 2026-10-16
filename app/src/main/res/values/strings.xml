@@ -53,9 +53,9 @@
     <string name="music_source_vd">Virtual Desktop music</string>
     <string name="music_source_custom">Custom file</string>
     <string name="music_source_pick">Choose a file...</string>
+    <string name="music_source_bundled">VDExtra Theme</string>
     <string name="dialog_music_source_title">Choose the background music</string>
     <string name="toast_music_format">Background music set to %1$s. Relaunch Virtual Desktop to apply.</string>
-    <string name="toast_music_vd">Virtual Desktop music restored. Relaunch Virtual Desktop to apply.</string>
     <string name="toast_music_no_picker">No file picker available on this device</string>
     <string name="toast_music_no_path">Could not resolve that file to a path. Pick a file from internal storage.</string>
     <string name="notif_channel_music">Background music</string>
@@ -74,4 +74,17 @@
     <string name="section_network">Network</string>
     <string name="network_force_lan_title">Force LAN discovery</string>
     <string name="network_force_lan_support">Still show local PCs even when the server is unreachable</string>
+
+    <string name="section_about">About</string>
+    <string name="about_title">Version and credits</string>
+    <string name="about_version_format">Version %1$s</string>
+    <string name="about_blurb">Adds features to Virtual Desktop on Quest.</string>
+    <string name="about_source">Source code</string>
+    <string name="about_author">Maintainer</string>
+    <string name="about_credit_title">Based on</string>
+    <string name="about_credit">The original design and native hook implementation are the work of ghitori, from vdplus. VDExtra is an independent continuation of that work.</string>
+    <string name="about_music_title">Background music</string>
+    <string name="about_music">VDExtra Theme is generated from source (tools/gen-theme.py), so it carries no third-party rights.</string>
+    <string name="about_license_title">Licence</string>
+    <string name="about_license">MIT. Provided as is, without warranty. VDExtra does not bypass or circumvent the Virtual Desktop licence check — please buy the app. Not affiliated with or endorsed by Virtual Desktop.</string>
 </resources>

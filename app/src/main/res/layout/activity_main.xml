@@ -375,6 +375,36 @@
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
+                <TextView style="@style/VD.Section" android:text="@string/section_about"/>
+                <com.google.android.material.card.MaterialCardView style="@style/VD.Card">
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:paddingLeft="16dp"
+                        android:paddingRight="16dp"
+                        android:paddingTop="4dp"
+                        android:paddingBottom="4dp">
+                        <LinearLayout
+                            android:id="@+id/row_about"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:minHeight="56dp"
+                            android:gravity="center_vertical"
+                            android:background="?attr/selectableItemBackground"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:paddingTop="8dp"
+                            android:paddingBottom="8dp">
+                            <TextView style="@style/VD.Title" android:text="@string/about_title"/>
+                            <TextView
+                                android:id="@+id/about_value"
+                                style="@style/VD.Support"/>
+                        </LinearLayout>
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
             </LinearLayout>
         </ScrollView>
     </FrameLayout>

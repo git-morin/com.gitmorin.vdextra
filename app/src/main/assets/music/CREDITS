@@ -1,0 +1,10 @@
+vdextra.ogg - "VDExtra Theme"
+
+Written for this project and released under the same MIT licence as the rest of
+VDExtra. It is generated, not recorded: tools/gen-theme.py synthesises the loop,
+so the sound is reproducible from source and carries no third-party rights.
+
+Replacing it: drop a new file here under the same name and keep this file honest
+about where it came from. Only ship audio the project is allowed to redistribute
+- your own work, or something under a licence that permits it. A bundled track
+reaches every user through a public repository and its releases.

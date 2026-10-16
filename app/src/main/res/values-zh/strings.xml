@@ -53,9 +53,9 @@
     <string name="music_source_vd">Virtual Desktop 音乐</string>
     <string name="music_source_custom">自定义文件</string>
     <string name="music_source_pick">选择文件...</string>
+    <string name="music_source_bundled">VDExtra 主题</string>
     <string name="dialog_music_source_title">选择背景音乐</string>
     <string name="toast_music_format">背景音乐已设为 %1$s。重启 Virtual Desktop 生效。</string>
-    <string name="toast_music_vd">已恢复 Virtual Desktop 音乐。重启 Virtual Desktop 生效。</string>
     <string name="toast_music_no_picker">此设备没有可用的文件选择器</string>
     <string name="toast_music_no_path">无法解析该文件的路径。请从内部存储中选择文件。</string>
     <string name="notif_channel_music">背景音乐</string>
@@ -74,4 +74,17 @@
     <string name="section_network">网络</string>
     <string name="network_force_lan_title">强制局域网发现</string>
     <string name="network_force_lan_support">服务器不可用时仍显示本地电脑</string>
+
+    <string name="section_about">关于</string>
+    <string name="about_title">版本与致谢</string>
+    <string name="about_version_format">版本 %1$s</string>
+    <string name="about_blurb">为 Quest 上的 Virtual Desktop 添加功能。</string>
+    <string name="about_source">源代码</string>
+    <string name="about_author">维护者</string>
+    <string name="about_credit_title">基于</string>
+    <string name="about_credit">最初的设计与原生 hook 实现由 ghitori 完成（vdplus）。VDExtra 是在其基础上的独立延续。</string>
+    <string name="about_music_title">背景音乐</string>
+    <string name="about_music">VDExtra Theme 由源码生成（tools/gen-theme.py），不含任何第三方权利。</string>
+    <string name="about_license_title">许可</string>
+    <string name="about_license">MIT。按原样提供，不含任何保证。VDExtra 不会绕过 Virtual Desktop 的许可验证，请购买正版。与 Virtual Desktop 无关联。</string>
 </resources>

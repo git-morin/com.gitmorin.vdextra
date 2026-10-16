@@ -59,13 +59,16 @@ public class MainModule extends XposedModule {
             nativeSetDict(ks, vs);
             nativeInit();
             float musicVolume = readFloat(PrefKeys.MUSIC_VOLUME, 1.0f);
-            String musicPath = readString(PrefKeys.MUSIC_PATH, null);
+            // Defaults to the bundled theme: hearing it is how a user knows the module took
+            // effect without having changed anything.
+            String musicPath = readString(PrefKeys.MUSIC_PATH, PrefKeys.MUSIC_BUNDLED);
+            boolean custom = !PrefKeys.MUSIC_VD.equals(musicPath);
             nativeSetMusicVolume(musicVolume);
-            nativeSetCustomMusic(musicPath != null);
-            if (musicPath != null) MusicPlayer.start(musicPath, musicVolume);
+            nativeSetCustomMusic(custom);
+            if (custom) MusicPlayer.start(musicPath, moduleApk, musicVolume);
             nativeSetQuality(readBool(PrefKeys.DISABLE_QUALITY_SOUND, false), readInt(PrefKeys.QUALITY_MASK, 0x7F));
             nativeSetBitrate(readBool(PrefKeys.BITRATE_EXTEND, false), readBool(PrefKeys.BITRATE_UNLOCK, false), readFloat(PrefKeys.BITRATE_SCALE, 2.0f));
-            nativeSetForceLan(readBool(PrefKeys.FORCE_LAN, true));
+            nativeSetForceLan(readBool(PrefKeys.FORCE_LAN, false));
             requestUpdateCheck();
             log(Log.INFO, TAG, "lang=" + (Languages.isOff(lang) ? "off" : lang)
                     + (fromSystem ? " (system)" : "") + " dict=" + dict.size());
