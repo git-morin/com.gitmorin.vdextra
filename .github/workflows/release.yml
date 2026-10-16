@@ -64,6 +64,7 @@ jobs:
       tag: ${{ steps.v.outputs.tag }}
       channel: ${{ steps.v.outputs.channel }}
       prerelease: ${{ steps.v.outputs.prerelease }}
+      publish: ${{ steps.v.outputs.publish }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -130,12 +131,26 @@ jobs:
 
           code=$((major * 1000000 + minor * 10000 + patch * 100 + serial))
 
+          # Only the paths that end up in the APK count as a change worth a tag, so a docs or
+          # Makefile push does not burn a dev version. main always publishes: a stable release
+          # is a deliberate act, not a consequence of what happened to change.
+          src_paths="app/src app/libs app/build.gradle build.gradle settings.gradle gradle.properties gradle"
+          publish=true
+          if [ "${GITHUB_REF_NAME}" != "main" ]; then
+            prev=$(git describe --tags --abbrev=0 HEAD 2>/dev/null || true)
+            if [ -n "$prev" ] && git diff --quiet "$prev" HEAD -- $src_paths; then
+              publish=false
+              echo "no source change since $prev, skipping the release"
+            fi
+          fi
+
           {
             echo "name=$name"
             echo "code=$code"
             echo "tag=$code-$name"
             echo "channel=$channel"
             echo "prerelease=$prerelease"
+            echo "publish=$publish"
           } >> "$GITHUB_OUTPUT"
 
           {
@@ -223,7 +238,7 @@ jobs:
     needs: [ version, build ]
     # Only a real push to main or dev publishes. A manual dispatch just leaves an artifact,
     # which is what the local build-and-install loop wants.
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && needs.version.outputs.publish == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

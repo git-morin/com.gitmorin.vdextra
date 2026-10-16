@@ -1,6 +1,6 @@
 # VDExtra
 
-<img width="160" height="160" alt="VDExtra app icon" src="app/src/main/res/drawable/ic_launcher.png" />
+<img width="160" height="160" alt="VDExtra app icon" src="docs/icon.png" />
 
 Xposed module that adds features to **Virtual Desktop** (VR).
 
