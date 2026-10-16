@@ -2,12 +2,19 @@
 
 <img width="160" height="160" alt="VDExtra app icon" src="app/src/main/res/drawable/ic_launcher.png" />
 
-Xposed module that adds features to **Virtual Desktop** for VR.
+Xposed module that adds features to **Virtual Desktop** (VR).
+
+> Does not circumvent the license requirement from the application. Please buy the software it is worth it!
 
 ⚠️ EARLY STAGE ⚠️
 
 This project is in its early stages. Currently tested only on my own personal hardware:
-- 
+- arm64-v8a (Quest 3)
+- libxposed API 102 
+- Virtual Desktop 1.34.22
+
+The module may misbehave by either not changing anything in VD (failed to hook internals of the app) or by crashing VD at launch (which in the Quest translate to a long load and then a dialog about the app not responding).
+If you meet these two major issues then please open an issue with your hardware specifications and the VD version that you are running.
 
 ## Features
 
@@ -28,12 +35,6 @@ This project is in its early stages. Currently tested only on my own personal ha
 2. Enable **VDExtra** in your Xposed manager; its static scope should default to Virtual Desktop.
 3. Restart Virtual Desktop if it was running. This is required whenever you change the module config.
 
-## Notes
-
-- This module provides nothing related to store authorization. Make sure your account owns a
-  legitimate Virtual Desktop purchase.
-- A bitrate multiplier set too high can exceed your encode, decode or network capacity and cause
-  stutter or latency. Pick a sensible maximum.
 
 ## License
 
