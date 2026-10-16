@@ -29,7 +29,8 @@ If you meet these two major issues then please open an issue with your hardware 
 - **Remove internal bitrate cap**: Prevent the measured bandwidth (internally from VD) from throttling what actually gets streamed.
   - ⚠️ Does not magically give you bandwidth. This is to prevent VD for meddling with the bitrate's current value when it does its own internal bandwidth check.
   - Generally you want this active if you use `Extend bitrate range` 
-- **Disable background music**: Prevent music from playing when VD isn't connected to a machine.
+- **Customize background music**: Change the song and at which volume music is playing when VD isn't connected to a machine.
+  - You need the music locally in the headset for this to work. 
 - **Disable performance cue sounds**: Mute the sounds that are added when you edit the performance slider.
 - **Force LAN discovery**: Find local PCs even when the remote server is unreachable (for restrictive networks).
 
