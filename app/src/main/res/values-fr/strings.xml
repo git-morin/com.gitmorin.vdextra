@@ -53,9 +53,9 @@
     <string name="music_source_vd">Musique de Virtual Desktop</string>
     <string name="music_source_custom">Fichier personnalisé</string>
     <string name="music_source_pick">Choisir un fichier...</string>
+    <string name="music_source_bundled">Thème VDExtra</string>
     <string name="dialog_music_source_title">Choisir la musique de fond</string>
     <string name="toast_music_format">Musique de fond définie sur %1$s. Relancez Virtual Desktop pour appliquer.</string>
-    <string name="toast_music_vd">Musique de Virtual Desktop restaurée. Relancez Virtual Desktop pour appliquer.</string>
     <string name="toast_music_no_picker">Aucun sélecteur de fichiers disponible sur cet appareil</string>
     <string name="toast_music_no_path">Impossible de determiner le chemin de ce fichier. Choisissez un fichier du stockage interne.</string>
     <string name="notif_channel_music">Musique de fond</string>
@@ -74,4 +74,17 @@
     <string name="section_network">Réseau</string>
     <string name="network_force_lan_title">Forcer la découverte réseau local</string>
     <string name="network_force_lan_support">Afficher les PC locaux même lorsque le serveur est inaccessible</string>
+
+    <string name="section_about">À propos</string>
+    <string name="about_title">Version et crédits</string>
+    <string name="about_version_format">Version %1$s</string>
+    <string name="about_blurb">Ajoute des fonctions à Virtual Desktop sur Quest.</string>
+    <string name="about_source">Code source</string>
+    <string name="about_author">Mainteneur</string>
+    <string name="about_credit_title">Basé sur</string>
+    <string name="about_credit">La conception initiale et les hooks natifs sont le travail de ghitori, issus de vdplus. VDExtra en est une suite indépendante.</string>
+    <string name="about_music_title">Musique de fond</string>
+    <string name="about_music">VDExtra Theme est généré depuis les sources (tools/gen-theme.py) et ne comporte aucun droit de tiers.</string>
+    <string name="about_license_title">Licence</string>
+    <string name="about_license">MIT. Fourni tel quel, sans garantie. VDExtra ne contourne pas le contrôle de licence de Virtual Desktop : merci d’acheter le logiciel. Sans affiliation avec Virtual Desktop.</string>
 </resources>

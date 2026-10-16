@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingLeft="24dp"
+        android:paddingRight="24dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:id="@+id/about_version"
+            style="@style/VD.Title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+        <TextView
+            style="@style/VD.Support"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/about_blurb"/>
+
+        <TextView
+            style="@style/VD.Title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="16dp"
+            android:text="@string/about_source"/>
+        <TextView
+            style="@style/VD.Support"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:autoLink="web"
+            android:text="@string/url_repo"/>
+
+        <TextView
+            style="@style/VD.Title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="16dp"
+            android:text="@string/about_author"/>
+        <TextView
+            style="@style/VD.Support"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:autoLink="web"
+            android:text="@string/url_author"/>
+
+        <TextView
+            style="@style/VD.Title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="16dp"
+            android:text="@string/about_credit_title"/>
+        <TextView
+            style="@style/VD.Support"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/about_credit"/>
+        <TextView
+            style="@style/VD.Support"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:autoLink="web"
+            android:text="@string/url_upstream"/>
+
+        <TextView
+            style="@style/VD.Title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="16dp"
+            android:text="@string/about_music_title"/>
+        <TextView
+            style="@style/VD.Support"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/about_music"/>
+
+        <TextView
+            style="@style/VD.Title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="16dp"
+            android:text="@string/about_license_title"/>
+        <TextView
+            style="@style/VD.Support"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/about_license"/>
+    </LinearLayout>
+</ScrollView>

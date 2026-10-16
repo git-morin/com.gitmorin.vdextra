@@ -62,7 +62,7 @@ public class MainActivity extends AppCompatActivity {
     private MaterialCardView homeStatus;
     private ImageView homeStatusIcon;
     private TextView homeStatusText, homeStatusSub;
-    private View rowLanguage, rowChannel, rowUpdate, rowMusicSource;
+    private View rowLanguage, rowChannel, rowUpdate, rowMusicSource, rowAbout;
     private TextView langValue, channelValue, updateValue;
     private Updates.Release pendingUpdate;
     private boolean updateBusy;
@@ -71,7 +71,7 @@ public class MainActivity extends AppCompatActivity {
     private LinearLayout homeInfoSystem, homeInfoDict;
     private MaterialSwitch swNoPerf, swExtend, swUnlock, swForceLan;
     private Slider slMusicVolume;
-    private TextView musicVolumeValue, musicSourceValue;
+    private TextView musicVolumeValue, musicSourceValue, aboutValue;
     private ActivityResultLauncher<String[]> pickMusic;
 
     private static void ensureServiceRegistered() {
@@ -110,6 +110,8 @@ public class MainActivity extends AppCompatActivity {
         musicVolumeValue = findViewById(R.id.music_volume_value);
         rowMusicSource = findViewById(R.id.row_music_source);
         musicSourceValue = findViewById(R.id.music_source_value);
+        rowAbout = findViewById(R.id.row_about);
+        aboutValue = findViewById(R.id.about_value);
         swNoPerf = findViewById(R.id.sw_no_perf);
         swExtend = findViewById(R.id.sw_extend);
         swUnlock = findViewById(R.id.sw_unlock);
@@ -134,6 +136,7 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.row_extend).setOnLongClickListener(v -> { showScaleDialog(); return true; });
 
         rowMusicSource.setOnClickListener(v -> showMusicSourceDialog());
+        rowAbout.setOnClickListener(v -> showAboutDialog());
         rowLanguage.setOnClickListener(v -> showLanguageDialog());
         rowChannel.setOnClickListener(v -> showChannelDialog());
         rowUpdate.setOnClickListener(v -> onUpdateRowClicked());
@@ -237,10 +240,8 @@ public class MainActivity extends AppCompatActivity {
         addInfo(homeInfoDict, R.drawable.ic_dict, getString(R.string.dict_language_title), languageSummary(lang));
 
         binding = true;
-        String musicName = p.getString(PrefKeys.MUSIC_NAME, null);
-        musicSourceValue.setText(p.getString(PrefKeys.MUSIC_PATH, null) == null
-                ? getString(R.string.music_source_vd)
-                : (musicName != null ? musicName : getString(R.string.music_source_custom)));
+        musicSourceValue.setText(musicSourceLabel(p));
+        aboutValue.setText(getString(R.string.about_version_format, version(getPackageName())));
 
         int vol = Math.round(p.getFloat(PrefKeys.MUSIC_VOLUME, 1.0f) * 100f);
         slMusicVolume.setValue(Math.max(0, Math.min(100, vol)));
@@ -248,7 +249,7 @@ public class MainActivity extends AppCompatActivity {
         swNoPerf.setChecked(p.getBoolean(PrefKeys.DISABLE_QUALITY_SOUND, false));
         swExtend.setChecked(p.getBoolean(PrefKeys.BITRATE_EXTEND, false));
         swUnlock.setChecked(p.getBoolean(PrefKeys.BITRATE_UNLOCK, false));
-        swForceLan.setChecked(p.getBoolean(PrefKeys.FORCE_LAN, true));
+        swForceLan.setChecked(p.getBoolean(PrefKeys.FORCE_LAN, false));
         binding = false;
     }
 
@@ -333,30 +334,55 @@ public class MainActivity extends AppCompatActivity {
         return getString(R.string.version_not_installed);
     }
 
+    private String musicSourceLabel(SharedPreferences p) {
+        String path = p.getString(PrefKeys.MUSIC_PATH, PrefKeys.MUSIC_BUNDLED);
+        if (PrefKeys.MUSIC_VD.equals(path)) return getString(R.string.music_source_vd);
+        if (PrefKeys.MUSIC_BUNDLED.equals(path)) return getString(R.string.music_source_bundled);
+        String name = p.getString(PrefKeys.MUSIC_NAME, null);
+        return name != null ? name : getString(R.string.music_source_custom);
+    }
+
     private void showMusicSourceDialog() {
         String[] labels = {
                 getString(R.string.music_source_vd),
+                getString(R.string.music_source_bundled),
                 getString(R.string.music_source_pick),
         };
-        boolean custom = getSharedPreferences(PrefKeys.NAME, MODE_PRIVATE)
-                .getString(PrefKeys.MUSIC_PATH, null) != null;
+        String path = getSharedPreferences(PrefKeys.NAME, MODE_PRIVATE)
+                .getString(PrefKeys.MUSIC_PATH, PrefKeys.MUSIC_BUNDLED);
+        int checked = PrefKeys.MUSIC_VD.equals(path) ? 0
+                : PrefKeys.MUSIC_BUNDLED.equals(path) ? 1 : 2;
         new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.dialog_music_source_title)
-                .setSingleChoiceItems(labels, custom ? 1 : 0, (d, which) -> {
+                .setSingleChoiceItems(labels, checked, (d, which) -> {
                     d.dismiss();
-                    if (which == 0) {
-                        save(PrefKeys.MUSIC_PATH, null);
-                        save(PrefKeys.MUSIC_NAME, null);
-                        refresh();
-                        Toast.makeText(this, R.string.toast_music_vd, Toast.LENGTH_LONG).show();
+                    if (which == 2) {
+                        try {
+                            pickMusic.launch(new String[]{ "audio/*" });
+                        } catch (Throwable t) {
+                            Toast.makeText(this, R.string.toast_music_no_picker,
+                                    Toast.LENGTH_LONG).show();
+                        }
                         return;
                     }
-                    try {
-                        pickMusic.launch(new String[]{ "audio/*" });
-                    } catch (Throwable t) {
-                        Toast.makeText(this, R.string.toast_music_no_picker, Toast.LENGTH_LONG).show();
-                    }
+                    save(PrefKeys.MUSIC_PATH,
+                            which == 0 ? PrefKeys.MUSIC_VD : PrefKeys.MUSIC_BUNDLED);
+                    save(PrefKeys.MUSIC_NAME, null);
+                    refresh();
+                    Toast.makeText(this, getString(R.string.toast_music_format, labels[which]),
+                            Toast.LENGTH_LONG).show();
                 })
+                .show();
+    }
+
+    private void showAboutDialog() {
+        View v = LayoutInflater.from(this).inflate(R.layout.dialog_about, null);
+        ((TextView) v.findViewById(R.id.about_version))
+                .setText(getString(R.string.about_version_format, version(getPackageName())));
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.about_title)
+                .setView(v)
+                .setPositiveButton(R.string.action_done, null)
                 .show();
     }
 

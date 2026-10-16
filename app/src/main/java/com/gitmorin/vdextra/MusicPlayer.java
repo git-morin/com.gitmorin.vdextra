@@ -7,6 +7,11 @@ import android.media.MediaPlayer;
 import android.util.Log;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 // Runs inside Virtual Desktop. The Mono hooks only record what VD's own music is doing, in an
 // atomic the poll loop below reads, so no audio call ever happens on a Mono thread.
@@ -20,18 +25,24 @@ final class MusicPlayer {
     private MusicPlayer() {
     }
 
-    static synchronized void start(String path, float volume) {
+    static synchronized void start(String path, String moduleApk, float volume) {
         if (sThread != null) return;
-        sThread = new Thread(() -> run(path, volume), "vdextra-music");
+        sThread = new Thread(() -> run(path, moduleApk, volume), "vdextra-music");
         sThread.setDaemon(true);
         sThread.start();
     }
 
-    private static void run(String path, float volume) {
+    private static void run(String want, String moduleApk, float volume) {
         Context ctx = awaitContext();
         if (ctx == null) {
             Log.w(TAG, "custom music: no context, falling back to VD");
             giveUp(null);
+            return;
+        }
+        String path = PrefKeys.MUSIC_BUNDLED.equals(want) ? unpackBundled(ctx, moduleApk) : want;
+        if (path == null) {
+            Log.w(TAG, "bundled theme unavailable, falling back to VD");
+            giveUp(ctx);
             return;
         }
         if (!new File(path).canRead()) {
@@ -75,6 +86,27 @@ final class MusicPlayer {
             try { Thread.sleep(200); } catch (InterruptedException e) { break; }
         }
         try { mp.release(); } catch (Throwable ignored) { }
+    }
+
+    // MediaPlayer needs a file, and our apk entry is not one, so the theme is copied into
+    // Virtual Desktop's own cache the first time it is used.
+    private static String unpackBundled(Context ctx, String moduleApk) {
+        if (moduleApk == null) return null;
+        File out = new File(ctx.getCacheDir(), "vdextra-theme.ogg");
+        try (ZipFile zf = new ZipFile(moduleApk)) {
+            ZipEntry e = zf.getEntry("assets/music/vdextra.ogg");
+            if (e == null) return null;
+            if (out.isFile() && out.length() == e.getSize()) return out.getAbsolutePath();
+            try (InputStream in = zf.getInputStream(e);
+                 OutputStream o = new FileOutputStream(out)) {
+                byte[] buf = new byte[8192];
+                for (int n; (n = in.read(buf)) > 0; ) o.write(buf, 0, n);
+            }
+            return out.getAbsolutePath();
+        } catch (Throwable t) {
+            Log.w(TAG, "could not unpack the bundled theme", t);
+            return null;
+        }
     }
 
     // Un-mute VD's own track, then tell the app so it can say why.

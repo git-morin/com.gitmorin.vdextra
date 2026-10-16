@@ -1,0 +1,5 @@
+<resources>
+    <string name="url_repo" translatable="false">https://github.com/git-morin/com.gitmorin.vdextra</string>
+    <string name="url_author" translatable="false">https://github.com/git-morin</string>
+    <string name="url_upstream" translatable="false">https://github.com/ghitori/vdplus</string>
+</resources>
