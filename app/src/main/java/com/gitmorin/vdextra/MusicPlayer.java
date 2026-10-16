@@ -32,14 +32,15 @@ final class MusicPlayer {
         sThread.start();
     }
 
-    private static void run(String want, String moduleApk, float volume) {
+    private static void run(String source, String moduleApk, float volume) {
         Context ctx = awaitContext();
         if (ctx == null) {
             Log.w(TAG, "custom music: no context, falling back to VD");
             giveUp(null);
             return;
         }
-        String path = PrefKeys.MUSIC_BUNDLED.equals(want) ? unpackBundled(ctx, moduleApk) : want;
+        String path = PrefKeys.MUSIC_BUNDLED.equals(source)
+                ? unpackBundled(ctx, moduleApk) : source;
         if (path == null) {
             Log.w(TAG, "bundled theme unavailable, falling back to VD");
             giveUp(ctx);
