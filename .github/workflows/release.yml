@@ -158,11 +158,10 @@ jobs:
           {
             echo "### $name ($channel)"
             echo
-            echo "Bump: $bump, from ${stable_tag:-no previous tag}"
-            echo
             git log --pretty='- %s' ${range:+$range}
           } > changelog.md
           cat changelog.md
+          echo "bump: $bump, from ${stable_tag:-no previous tag}"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
