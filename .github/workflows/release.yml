@@ -259,6 +259,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.version.outputs.tag }}
+          NAME: ${{ needs.version.outputs.name }}
           PRERELEASE: ${{ needs.version.outputs.prerelease }}
         run: |
           set -euo pipefail
@@ -266,7 +267,7 @@ jobs:
             echo "$TAG already published, nothing to do"
             exit 0
           fi
-          flags=(--title "$TAG" --notes-file changelog.md --target "$GITHUB_SHA")
+          flags=(--title "$NAME" --notes-file changelog.md --target "$GITHUB_SHA")
           [ "$PRERELEASE" = "true" ] && flags+=(--prerelease)
           gh release create "$TAG" "${flags[@]}" dist/*.apk
 
