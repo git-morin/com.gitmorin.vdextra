@@ -10,6 +10,8 @@ class PrefKeys {
     final String UPDATE_CHANNEL = "update_channel";
     final String LAST_UPDATE_CHECK = "last_update_check";
     final String MUSIC_VOLUME = "music_volume";
+    final String MUSIC_URI = "music_uri";
+    final String MUSIC_NAME = "music_name";
     final String DISABLE_QUALITY_SOUND = "disable_quality_sound";
     final String QUALITY_MASK = "quality_mask";
     final String BITRATE_EXTEND = "bitrate_extend";

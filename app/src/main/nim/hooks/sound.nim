@@ -10,7 +10,9 @@ type
 
   MusicFeature* = ref object of Feature
     volume*: Atomic[float32]
-    play, playCb: Hook
+    custom*: Atomic[bool]
+    state*: Atomic[int] ## 0 unknown, 1 playing, 2 paused; polled by the Java player
+    play, playCb, fadeOut, pauseNow, resume: Hook
     musicField: MonoField
     setVolume: SetFloat1Fn
 
@@ -31,7 +33,9 @@ musicFeature.volume.store(1'f32)
 # has to be re-applied every time rather than set once.
 proc applyVolume(self: pointer) =
   if self == nil or musicFeature.setVolume == nil or musicFeature.musicField == nil: return
-  let v = musicFeature.volume.load()
+  # A custom track plays over VD's, so VD's own goes silent rather than being suppressed:
+  # leaving its Play intact keeps _music alive, so its own fade and pause stay safe.
+  let v = if musicFeature.custom.load(): 0'f32 else: musicFeature.volume.load()
   if v >= 1'f32: return # full scale means VD's own level, not a forced 1.0
   let inst = fieldGetPtr(self, musicFeature.musicField)
   if inst == nil: return
@@ -40,12 +44,33 @@ proc applyVolume(self: pointer) =
 proc hookMusicPlay(self: pointer) {.cdecl.} =
   let orig = origAs[VoidFn](musicFeature.play)
   if orig != nil: orig(self)
-  guard "music volume": applyVolume(self)
+  guard "music play":
+    applyVolume(self)
+    musicFeature.state.store(1)
 
 proc hookMusicPlayCb(self, state: pointer) {.cdecl.} =
   let orig = origAs[Void2Fn](musicFeature.playCb)
   if orig != nil: orig(self, state)
-  guard "music volume cb": applyVolume(self)
+  guard "music play cb":
+    applyVolume(self)
+    musicFeature.state.store(1)
+
+proc hookMusicFadeOut(self: pointer) {.cdecl.} =
+  let orig = origAs[VoidFn](musicFeature.fadeOut)
+  if orig != nil: orig(self)
+  musicFeature.state.store(2)
+
+proc hookMusicPauseNow(self: pointer) {.cdecl.} =
+  let orig = origAs[VoidFn](musicFeature.pauseNow)
+  if orig != nil: orig(self)
+  musicFeature.state.store(2)
+
+proc hookMusicResume(self: pointer) {.cdecl.} =
+  let orig = origAs[VoidFn](musicFeature.resume)
+  if orig != nil: orig(self)
+  guard "music resume":
+    applyVolume(self)
+    musicFeature.state.store(1)
 
 template defCue(idx: static int, name: untyped) =
   proc name(self: pointer) {.cdecl.} =
@@ -65,6 +90,9 @@ const MUSIC_SYSTEM = "VirtualDesktop.Mobile.MusicSystem, VirtualDesktop.Mobile"
 
 musicFeature.play = newHook(MUSIC_SYSTEM, "Play", 0, cast[pointer](hookMusicPlay))
 musicFeature.playCb = newHook(MUSIC_SYSTEM, "Play", 1, cast[pointer](hookMusicPlayCb))
+musicFeature.fadeOut = newHook(MUSIC_SYSTEM, "FadeOut", 0, cast[pointer](hookMusicFadeOut))
+musicFeature.pauseNow = newHook(MUSIC_SYSTEM, "PauseNow", 0, cast[pointer](hookMusicPauseNow))
+musicFeature.resume = newHook(MUSIC_SYSTEM, "Resume", 0, cast[pointer](hookMusicResume))
 
 block:
   let repls = [cast[pointer](cue0), cast[pointer](cue1), cast[pointer](cue2),
@@ -96,7 +124,7 @@ method install*(f: MusicFeature): bool =
   if not f.play.install(cls):
     logE("MusicSystem::Play hook failed")
     return false
-  f.playCb.install(cls)
+  for h in [f.playCb, f.fadeOut, f.pauseNow, f.resume]: h.install(cls)
   logI("hooked MusicSystem::Play, music volume=" & $f.volume.load())
   true
 
