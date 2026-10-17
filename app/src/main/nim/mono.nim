@@ -31,6 +31,13 @@ type
   GchandleFreeFn = proc(h: MonoGCHandle) {.cdecl, gcsafe.}
   GetDomainFn = proc(): MonoDomain {.cdecl, gcsafe.}
   GetSizeFn* = proc(o: MonoObject): cfloat {.cdecl, gcsafe.}
+  ObjectNewFn = proc(d: MonoDomain, c: MonoClass): MonoObject {.cdecl, gcsafe.}
+  ObjectInitFn = proc(o: MonoObject) {.cdecl, gcsafe.}
+  GetNameFn = proc(p: pointer): cstring {.cdecl, gcsafe.}
+  IterFn = proc(c: MonoClass, iter: ptr pointer): pointer {.cdecl, gcsafe.}
+  FieldGetTypeFn = proc(f: MonoField): MonoType {.cdecl, gcsafe.}
+  FieldGetFlagsFn = proc(f: MonoField): uint32 {.cdecl, gcsafe.}
+  TypeIsRefFn = proc(t: MonoType): bool {.cdecl, gcsafe.}
 
 var
   pGetCorlib*: GetCorlibFn
@@ -51,6 +58,17 @@ var
   pGchandleFree*: GchandleFreeFn
   pGetRootDomain*: GetDomainFn
   pDomainGet*: GetDomainFn
+  pObjectNew*: ObjectNewFn
+  pRuntimeObjectInit*: ObjectInitFn
+  pClassGetName*: GetNameFn
+  pClassGetNamespace*: GetNameFn
+  pFieldGetName*: GetNameFn
+  pMethodGetName*: GetNameFn
+  pClassGetFields*: IterFn
+  pClassGetMethods*: IterFn
+  pFieldGetType*: FieldGetTypeFn
+  pFieldGetFlags*: FieldGetFlagsFn
+  pTypeIsReference*: TypeIsRefFn
 
 var
   gCorlib*: MonoImage
@@ -88,6 +106,17 @@ proc resolveMono*(sym: proc(name: cstring): pointer {.cdecl, gcsafe.}) =
   pGchandleFree = cast[GchandleFreeFn](sym("mono_gchandle_free"))
   pGetRootDomain = cast[GetDomainFn](sym("mono_get_root_domain"))
   pDomainGet = cast[GetDomainFn](sym("mono_domain_get"))
+  pObjectNew = cast[ObjectNewFn](sym("mono_object_new"))
+  pRuntimeObjectInit = cast[ObjectInitFn](sym("mono_runtime_object_init"))
+  pClassGetName = cast[GetNameFn](sym("mono_class_get_name"))
+  pClassGetNamespace = cast[GetNameFn](sym("mono_class_get_namespace"))
+  pFieldGetName = cast[GetNameFn](sym("mono_field_get_name"))
+  pMethodGetName = cast[GetNameFn](sym("mono_method_get_name"))
+  pClassGetFields = cast[IterFn](sym("mono_class_get_fields"))
+  pClassGetMethods = cast[IterFn](sym("mono_class_get_methods"))
+  pFieldGetType = cast[FieldGetTypeFn](sym("mono_field_get_type"))
+  pFieldGetFlags = cast[FieldGetFlagsFn](sym("mono_field_get_flags"))
+  pTypeIsReference = cast[TypeIsRefFn](sym("mono_type_is_reference"))
 
 proc corlib*(): MonoImage =
   if gCorlib == nil and pGetCorlib != nil: gCorlib = pGetCorlib()
@@ -114,6 +143,12 @@ proc hasWideChars*(s: ptr UncheckedArray[uint16], len: int): bool =
   for i in 0 ..< len:
     if s[i] > 0x2E7F'u16: return true
   false
+
+proc displayWidth*(s: ptr UncheckedArray[uint16], len: int): int =
+  ## Cheap east-asian-width proxy: the wide range counts double, so a CJK translation with
+  ## fewer characters is not mistaken for a narrower one.
+  for i in 0 ..< len:
+    result += (if s[i] > 0x2E7F'u16: 2 else: 1)
 
 proc utf16ToUtf8*(s: ptr UncheckedArray[uint16], len: int): string =
   result = newStringOfCap(len * 3)

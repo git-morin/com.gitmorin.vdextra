@@ -33,6 +33,7 @@ import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.slider.Slider
+import com.google.android.material.textfield.TextInputLayout
 import io.github.libxposed.service.XposedService
 import io.github.libxposed.service.XposedServiceHelper
 import java.io.File
@@ -64,6 +65,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var swExtend: MaterialSwitch
     private lateinit var swUnlock: MaterialSwitch
     private lateinit var swForceLan: MaterialSwitch
+    private lateinit var swTextFit: MaterialSwitch
     private lateinit var slMusicVolume: Slider
     private lateinit var musicVolumeValue: TextView
     private lateinit var musicSourceValue: TextView
@@ -94,6 +96,7 @@ class MainActivity : AppCompatActivity() {
         swExtend = findViewById(R.id.sw_extend)
         swUnlock = findViewById(R.id.sw_unlock)
         swForceLan = findViewById(R.id.sw_force_lan)
+        swTextFit = findViewById(R.id.sw_text_fit)
 
         findViewById<BottomNavigationView>(R.id.bottom_nav).setOnItemSelectedListener { item ->
             showPage(if (item.itemId == R.id.nav_options) 1 else 0)
@@ -108,10 +111,13 @@ class MainActivity : AppCompatActivity() {
         swExtend.setOnCheckedChangeListener { _, c -> save(PrefKeys.BITRATE_EXTEND, c) }
         swUnlock.setOnCheckedChangeListener { _, c -> save(PrefKeys.BITRATE_UNLOCK, c) }
         swForceLan.setOnCheckedChangeListener { _, c -> save(PrefKeys.FORCE_LAN, c) }
+        swTextFit.setOnCheckedChangeListener { _, c -> save(PrefKeys.TEXT_FIT, c) }
         swNoPerf.setOnLongClickListener { showSoundDialog(); true }
         swExtend.setOnLongClickListener { showScaleDialog(); true }
         findViewById<View>(R.id.row_no_perf).setOnLongClickListener { showSoundDialog(); true }
         findViewById<View>(R.id.row_extend).setOnLongClickListener { showScaleDialog(); true }
+        swTextFit.setOnLongClickListener { showTextFitDialog(); true }
+        findViewById<View>(R.id.row_text_fit).setOnLongClickListener { showTextFitDialog(); true }
 
         findViewById<View>(R.id.row_music_source).setOnClickListener { showMusicSourceDialog() }
         findViewById<View>(R.id.row_about).setOnClickListener { showAboutDialog() }
@@ -218,7 +224,7 @@ class MainActivity : AppCompatActivity() {
         homeStatusSub.text = if (active) "" else getString(R.string.status_inactive_hint)
         homeStatusSub.visibility = if (active) View.GONE else View.VISIBLE
 
-        val p = getSharedPreferences(PrefKeys.NAME, Context.MODE_PRIVATE)
+        val p = prefs()
 
         homeInfoSystem.removeAllViews()
         addInfo(
@@ -252,6 +258,7 @@ class MainActivity : AppCompatActivity() {
         swExtend.isChecked = p.getBoolean(PrefKeys.BITRATE_EXTEND, false)
         swUnlock.isChecked = p.getBoolean(PrefKeys.BITRATE_UNLOCK, false)
         swForceLan.isChecked = p.getBoolean(PrefKeys.FORCE_LAN, false)
+        swTextFit.isChecked = p.getBoolean(PrefKeys.TEXT_FIT, true)
         binding = false
     }
 
@@ -270,9 +277,12 @@ class MainActivity : AppCompatActivity() {
         box.addView(row)
     }
 
+    private fun prefs(): SharedPreferences =
+        getSharedPreferences(PrefKeys.NAME, Context.MODE_PRIVATE)
+
     private fun save(key: String, value: Any?) {
         if (binding) return
-        put(getSharedPreferences(PrefKeys.NAME, Context.MODE_PRIVATE).edit(), key, value).apply()
+        put(prefs().edit(), key, value).apply()
         val svc = service ?: return
         try {
             put(svc.getRemotePreferences(PrefKeys.NAME).edit(), key, value).commit()
@@ -301,7 +311,7 @@ class MainActivity : AppCompatActivity() {
         val ids = intArrayOf(
             R.id.snd0, R.id.snd1, R.id.snd2, R.id.snd3, R.id.snd4, R.id.snd5, R.id.snd6
         )
-        val mask = getSharedPreferences(PrefKeys.NAME, Context.MODE_PRIVATE)
+        val mask = prefs()
             .getInt(PrefKeys.QUALITY_MASK, 0x7F)
         val sw = ids.mapIndexed { i, id ->
             v.findViewById<MaterialSwitch>(id).apply { isChecked = (mask and (1 shl i)) != 0 }
@@ -318,22 +328,36 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun showScaleDialog() {
+    private fun showScaleDialog() = showNumberDialog(
+        R.string.dialog_scale_title, R.string.scale_hint,
+        prefs().getFloat(PrefKeys.BITRATE_SCALE, 2.0f), 2.0f, 1f, 3f
+    ) { save(PrefKeys.BITRATE_SCALE, it) }
+
+    private fun showTextFitDialog() = showNumberDialog(
+        R.string.dialog_text_fit_title, R.string.text_fit_hint,
+        prefs().getFloat(PrefKeys.TEXT_FIT_FLOOR, 0.75f), 0.75f, 0.5f, 1f
+    ) { save(PrefKeys.TEXT_FIT_FLOOR, it) }
+
+    private fun showNumberDialog(
+        titleRes: Int,
+        hintRes: Int,
+        current: Float,
+        fallback: Float,
+        min: Float,
+        max: Float,
+        onDone: (Float) -> Unit
+    ) {
         val v = LayoutInflater.from(this).inflate(R.layout.dialog_scale, null)
+        v.findViewById<TextInputLayout>(R.id.scale_input_layout).setHint(hintRes)
         val input = v.findViewById<EditText>(R.id.scale_input)
-        input.setText(
-            formatScale(
-                getSharedPreferences(PrefKeys.NAME, Context.MODE_PRIVATE)
-                    .getFloat(PrefKeys.BITRATE_SCALE, 2.0f)
-            )
-        )
+        input.setText(formatScale(current))
         MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.dialog_scale_title)
+            .setTitle(titleRes)
             .setView(v)
             .setPositiveButton(R.string.action_done, null)
             .setOnDismissListener {
-                val s = input.text.toString().trim().toFloatOrNull() ?: 2.0f
-                save(PrefKeys.BITRATE_SCALE, s.coerceIn(1f, 3f))
+                val s = input.text.toString().trim().toFloatOrNull() ?: fallback
+                onDone(s.coerceIn(min, max))
             }
             .show()
     }
@@ -369,7 +393,7 @@ class MainActivity : AppCompatActivity() {
             getString(R.string.music_source_pick),
         )
         val values = arrayOf(PrefKeys.MUSIC_VD, PrefKeys.MUSIC_PLAZA)
-        val path = getSharedPreferences(PrefKeys.NAME, Context.MODE_PRIVATE)
+        val path = prefs()
             .getString(PrefKeys.MUSIC_PATH, PrefKeys.MUSIC_DEFAULT)
         val checked = when (path) {
             PrefKeys.MUSIC_VD -> 0
@@ -486,7 +510,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun currentChannel(): String = Updates.channelOf(
-        getSharedPreferences(PrefKeys.NAME, Context.MODE_PRIVATE)
+        prefs()
             .getString(PrefKeys.UPDATE_CHANNEL, Updates.STABLE)
     )
 
@@ -618,7 +642,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun currentLanguage(): String =
-        getSharedPreferences(PrefKeys.NAME, Context.MODE_PRIVATE)
+        prefs()
             .getString(PrefKeys.UI_LANGUAGE, null)
             ?: Languages.systemDefault(Languages.available(assets))
 

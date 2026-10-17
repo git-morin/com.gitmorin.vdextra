@@ -57,6 +57,10 @@ class MainModule : XposedModule() {
                 readFloat(PrefKeys.BITRATE_SCALE, 2.0f)
             )
             nativeSetForceLan(readBool(PrefKeys.FORCE_LAN, false))
+            nativeSetTextFit(
+                readBool(PrefKeys.TEXT_FIT, true),
+                readFloat(PrefKeys.TEXT_FIT_FLOOR, 0.75f)
+            )
             requestUpdateCheck()
             log(
                 Log.INFO, TAG,
@@ -195,6 +199,8 @@ class MainModule : XposedModule() {
     external fun nativeSetBitrate(extend: Boolean, unlock: Boolean, scale: Float)
 
     external fun nativeSetForceLan(enable: Boolean)
+
+    external fun nativeSetTextFit(enable: Boolean, floor: Float)
 
     private companion object {
         const val TAG = "VDExtra"
