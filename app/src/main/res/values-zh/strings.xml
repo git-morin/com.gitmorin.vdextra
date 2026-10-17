@@ -84,7 +84,7 @@
     <string name="about_credit_title">基于</string>
     <string name="about_credit">最初的设计与原生 hook 实现由 ghitori 完成（vdplus）。VDExtra 是在其基础上的独立延续。</string>
     <string name="about_music_title">背景音乐</string>
-    <string name="about_music">默认音源为 Nightwave Plaza，一个独立的在线电台，由其服务器提供。若无法连接，则使用 Virtual Desktop 的音乐。</string>
+    <string name="about_music">默认音源为 Nightwave Plaza，一个独立的在线电台，由其服务器提供。感谢 potatoru，其 Nightwave Plaza 应用采用 MIT 许可。所播放的音乐版权归各自权利人所有。</string>
     <string name="about_license_title">许可</string>
     <string name="about_license">MIT。按原样提供，不含任何保证。VDExtra 不会绕过 Virtual Desktop 的许可验证，请购买正版。与 Virtual Desktop 无关联。</string>
 </resources>
