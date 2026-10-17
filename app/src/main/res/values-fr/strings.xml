@@ -53,7 +53,6 @@
     <string name="music_source_vd">Musique de Virtual Desktop</string>
     <string name="music_source_custom">Fichier personnalisé</string>
     <string name="music_source_pick">Choisir un fichier...</string>
-    <string name="music_source_bundled">Thème VDExtra</string>
     <string name="music_source_plaza">Nightwave Plaza (radio en ligne)</string>
     <string name="dialog_music_source_title">Choisir la musique de fond</string>
     <string name="toast_music_format">Musique de fond définie sur %1$s. Relancez Virtual Desktop pour appliquer.</string>
@@ -85,7 +84,7 @@
     <string name="about_credit_title">Basé sur</string>
     <string name="about_credit">La conception initiale et les hooks natifs sont le travail de ghitori, issus de vdplus. VDExtra en est une suite indépendante.</string>
     <string name="about_music_title">Musique de fond</string>
-    <string name="about_music">La source par défaut est Nightwave Plaza, une radio en ligne indépendante, diffusée depuis leur serveur. VDExtra Theme sert de secours hors ligne et est généré depuis les sources (tools/gen-theme.py).</string>
+    <string name="about_music">La source par défaut est Nightwave Plaza, une radio en ligne indépendante, diffusée depuis leur serveur. Si elle est injoignable, la musique de Virtual Desktop est utilisée.</string>
     <string name="about_license_title">Licence</string>
     <string name="about_license">MIT. Fourni tel quel, sans garantie. VDExtra ne contourne pas le contrôle de licence de Virtual Desktop : merci d’acheter le logiciel. Sans affiliation avec Virtual Desktop.</string>
 </resources>
