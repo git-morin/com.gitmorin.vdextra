@@ -147,6 +147,28 @@
                                 android:id="@+id/lang_value"
                                 style="@style/VD.Support"/>
                         </LinearLayout>
+                        <LinearLayout
+                            android:id="@+id/row_text_fit"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:minHeight="56dp">
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical"
+                                android:paddingTop="8dp"
+                                android:paddingBottom="8dp">
+                                <TextView style="@style/VD.Title" android:text="@string/text_fit_title"/>
+                                <TextView style="@style/VD.Support" android:text="@string/text_fit_support"/>
+                            </LinearLayout>
+                            <com.google.android.material.materialswitch.MaterialSwitch
+                                android:id="@+id/sw_text_fit"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"/>
+                        </LinearLayout>
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 

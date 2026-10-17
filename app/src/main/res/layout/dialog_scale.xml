@@ -9,6 +9,7 @@
     android:paddingTop="8dp"
     android:paddingBottom="8dp">
     <com.google.android.material.textfield.TextInputLayout
+        android:id="@+id/scale_input_layout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:hint="@string/scale_hint">
