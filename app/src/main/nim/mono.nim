@@ -307,6 +307,59 @@ proc isFontClass*(o: MonoObject): bool =
     cur = pClassGetParent(cur)
   false
 
+const FIELD_STATIC = 0x0010'u32
+
+proc nameOf(p: pointer, get: GetNameFn): string =
+  if p == nil or get == nil: return "?"
+  let c = get(p)
+  if c == nil: "?" else: $c
+
+proc className*(c: MonoClass): string =
+  if c == nil: return "nil"
+  let ns = nameOf(c, pClassGetNamespace)
+  let n = nameOf(c, pClassGetName)
+  if ns.len == 0 or ns == "?": n else: ns & "." & n
+
+proc objClassName*(o: MonoObject): string =
+  if o == nil or pObjGetClass == nil: "nil" else: className(pObjGetClass(o))
+
+proc fieldNames*(c: MonoClass, cap = 128): seq[string] =
+  if c == nil or pClassGetFields == nil or pFieldGetName == nil: return @[]
+  var iter: pointer = nil
+  while result.len < cap:
+    let f = pClassGetFields(c, addr iter)
+    if f == nil: break
+    result.add nameOf(f, pFieldGetName)
+
+proc methodNames*(c: MonoClass, cap = 256): seq[string] =
+  if c == nil or pClassGetMethods == nil or pMethodGetName == nil: return @[]
+  var iter: pointer = nil
+  while result.len < cap:
+    let m = pClassGetMethods(c, addr iter)
+    if m == nil: break
+    result.add nameOf(m, pMethodGetName)
+
+## A non-reference field read through fieldGetPtr would hand back a float or a bool
+## reinterpreted as an address, so every instance walk has to filter on this first.
+proc fieldIsInstanceRef*(f: MonoField): bool =
+  if f == nil or pFieldGetType == nil or pTypeIsReference == nil: return false
+  if pFieldGetFlags != nil and (pFieldGetFlags(f) and FIELD_STATIC) != 0'u32: return false
+  let t = pFieldGetType(f)
+  if t == nil: return false
+  pTypeIsReference(t)
+
+proc fieldDeclaredClass*(f: MonoField): MonoClass =
+  if f == nil or pFieldGetType == nil or pTypeGetClass == nil: return nil
+  let t = pFieldGetType(f)
+  if t == nil: nil else: pTypeGetClass(t)
+
+proc newInstance*(c: MonoClass): MonoObject =
+  ## Allocates and runs the default constructor; nil when either entry point is missing.
+  if c == nil or pObjectNew == nil: return nil
+  let o = pObjectNew(domain(), c)
+  if o != nil and pRuntimeObjectInit != nil: pRuntimeObjectInit(o)
+  o
+
 proc charToGlyph(font: MonoObject): MonoObject =
   if font == nil or gDictField == nil or pFieldGetValue == nil: return nil
   var dict: pointer = nil
