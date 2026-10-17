@@ -1,4 +1,7 @@
-plugins { id 'com.android.application' }
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
 
 def signing = new Properties()
 def signingFile = rootProject.file('signing.properties')
@@ -52,6 +55,10 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
     packaging {
         jniLibs { useLegacyPackaging = false }
         resources { excludes += ['META-INF/*.SF', 'META-INF/*.RSA', 'META-INF/*.DSA'] }
@@ -65,6 +72,4 @@ dependencies {
     implementation 'com.google.android.material:material:1.12.0'
     compileOnly files('libs/libxposed-api.jar')
     implementation files('libs/libxposed-service-full.jar')
-    compileOnly 'org.projectlombok:lombok:1.18.38'
-    annotationProcessor 'org.projectlombok:lombok:1.18.38'
 }
