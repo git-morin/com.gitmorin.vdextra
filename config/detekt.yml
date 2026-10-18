@@ -1,0 +1,24 @@
+# Deviations from detekt's defaults only; the scan runs with --build-upon-default-config, so
+# every rule not named here keeps its default setting.
+
+exceptions:
+  # The module runs inside Virtual Desktop's process. Anything that escapes a hook destabilises
+  # the host app, so catching Throwable and carrying on is the design here, not an oversight.
+  TooGenericExceptionCaught:
+    active: false
+  SwallowedException:
+    active: false
+
+style:
+  LoopWithTooManyJumpStatements:
+    # The release scan and the music poll loop both exit deliberately from several points.
+    active: false
+  ThrowsCount:
+    # Updates.download validates status, emptiness and length as three separate failures.
+    active: false
+  MagicNumber:
+    # Buffer sizes, bitmasks and UI defaults read better inline than behind an alias.
+    active: false
+  ReturnCount:
+    # Guard clauses are the house style; the limit of two fights every early return.
+    active: false

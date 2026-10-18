@@ -20,3 +20,4 @@ signing.properties
 *.ps1
 Thumbs.db
 desktop.ini
+.tools/

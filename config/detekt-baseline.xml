@@ -1,0 +1,14 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>CyclomaticComplexMethod:MusicPlayer.kt$MusicPlayer$private fun run(module: MainModule, source: String, volume: Float)</ID>
+    <ID>CyclomaticComplexMethod:Updates.kt$Updates$fun latest(channel: String): Release?</ID>
+    <ID>NestedBlockDepth:Languages.kt$Languages$fun available(moduleApk: String?): List&lt;String&gt;</ID>
+    <ID>NestedBlockDepth:MainActivity.kt$MainActivity$private fun pathOf(uri: Uri): String?</ID>
+    <ID>NestedBlockDepth:MusicPlayer.kt$MusicPlayer$private fun run(module: MainModule, source: String, volume: Float)</ID>
+    <ID>TooManyFunctions:MainActivity.kt$MainActivity : AppCompatActivity</ID>
+    <ID>TooManyFunctions:MainModule.kt$MainModule : XposedModule</ID>
+    <ID>TooManyFunctions:Updates.kt$Updates</ID>
+  </CurrentIssues>
+</SmellBaseline>
