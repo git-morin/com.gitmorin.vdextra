@@ -5,11 +5,8 @@ internal object PrefKeys {
 
     const val UI_LANGUAGE = "ui_language"
 
-    /** Widens a label so a longer translation fits, rather than shrinking the text. */
-    const val TEXT_ROOM = "text_room"
-
-    /** Ceiling on that widening, as a multiple of the width VD gave the label. */
-    const val TEXT_ROOM_FACTOR = "text_room_factor"
+/** Lets a settings page taller than its slot scroll, which VD's own layout cannot. */
+    const val SETTINGS_SCROLL = "settings_scroll"
     const val UPDATE_CHANNEL = "update_channel"
     const val LAST_UPDATE_CHECK = "last_update_check"
     const val MUSIC_VOLUME = "music_volume"

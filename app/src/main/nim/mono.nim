@@ -38,6 +38,7 @@ type
   FieldGetTypeFn = proc(f: MonoField): MonoType {.cdecl, gcsafe.}
   FieldGetFlagsFn = proc(f: MonoField): uint32 {.cdecl, gcsafe.}
   TypeIsRefFn = proc(t: MonoType): bool {.cdecl, gcsafe.}
+  FieldGetOffsetFn = proc(f: MonoField): cint {.cdecl, gcsafe.}
 
 var
   pGetCorlib*: GetCorlibFn
@@ -69,6 +70,7 @@ var
   pFieldGetType*: FieldGetTypeFn
   pFieldGetFlags*: FieldGetFlagsFn
   pTypeIsReference*: TypeIsRefFn
+  pFieldGetOffset*: FieldGetOffsetFn
 
 var
   gCorlib*: MonoImage
@@ -117,6 +119,7 @@ proc resolveMono*(sym: proc(name: cstring): pointer {.cdecl, gcsafe.}) =
   pFieldGetType = cast[FieldGetTypeFn](sym("mono_field_get_type"))
   pFieldGetFlags = cast[FieldGetFlagsFn](sym("mono_field_get_flags"))
   pTypeIsReference = cast[TypeIsRefFn](sym("mono_type_is_reference"))
+  pFieldGetOffset = cast[FieldGetOffsetFn](sym("mono_field_get_offset"))
 
 proc corlib*(): MonoImage =
   if gCorlib == nil and pGetCorlib != nil: gCorlib = pGetCorlib()
@@ -352,6 +355,38 @@ proc fieldDeclaredClass*(f: MonoField): MonoClass =
   if f == nil or pFieldGetType == nil or pTypeGetClass == nil: return nil
   let t = pFieldGetType(f)
   if t == nil: nil else: pTypeGetClass(t)
+
+proc fieldOffset*(c: MonoClass, name: string): int =
+  ## Byte offset of an instance field, or -1. Resolved by name so a VD layout change is a
+  ## missing field rather than a wrong read.
+  if c == nil or pClassGetField == nil or pFieldGetOffset == nil: return -1
+  let f = pClassGetField(c, name.cstring)
+  if f == nil: -1 else: int(pFieldGetOffset(f))
+
+proc readPtrAt*(o: pointer, off: int): pointer =
+  if o == nil or off < 0: nil else: cast[ptr pointer](cast[uint64](o) + uint64(off))[]
+
+proc writePtrAt*(o: pointer, off: int, v: pointer) =
+  if o == nil or off < 0: return
+  cast[ptr pointer](cast[uint64](o) + uint64(off))[] = v
+
+proc writeBoolAt*(o: pointer, off: int, v: bool) =
+  if o == nil or off < 0: return
+  cast[ptr uint8](cast[uint64](o) + uint64(off))[] = (if v: 1'u8 else: 0'u8)
+
+proc methodAddrInherited*(c: MonoClass, name: string, np: int): pointer =
+  ## Like methodAddr, but walks base classes: mono_class_get_method_from_name does not, and
+  ## the collection mutators live on FastCollection two levels above UIElementCollection.
+  var cur = c
+  for _ in 0 ..< 6:
+    if cur == nil: break
+    let a = methodAddr(cur, name, np)
+    if a != nil: return a
+    cur = pClassGetParent(cur)
+  nil
+
+proc classOf*(o: MonoObject): MonoClass =
+  if o == nil or pObjGetClass == nil: nil else: pObjGetClass(o)
 
 proc newInstance*(c: MonoClass): MonoObject =
   ## Allocates and runs the default constructor; nil when either entry point is missing.

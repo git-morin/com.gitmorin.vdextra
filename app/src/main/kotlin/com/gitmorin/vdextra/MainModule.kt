@@ -56,10 +56,7 @@ class MainModule : XposedModule() {
                 readFloat(PrefKeys.BITRATE_SCALE, 2.0f)
             )
             nativeSetForceLan(readBool(PrefKeys.FORCE_LAN, false))
-            nativeSetTextRoom(
-                readBool(PrefKeys.TEXT_ROOM, true),
-                readFloat(PrefKeys.TEXT_ROOM_FACTOR, 1.5f)
-            )
+            nativeSetSettingsScroll(readBool(PrefKeys.SETTINGS_SCROLL, true))
             requestUpdateCheck()
             log(
                 Log.INFO, TAG,
@@ -198,7 +195,7 @@ class MainModule : XposedModule() {
 
     external fun nativeSetForceLan(enable: Boolean)
 
-    external fun nativeSetTextRoom(enable: Boolean, factor: Float)
+    external fun nativeSetSettingsScroll(enable: Boolean)
 
     private companion object {
         const val TAG = "VDExtra"

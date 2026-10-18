@@ -1,16 +1,15 @@
 import std/atomics
 import ../vdlog, ../mono
-import hook, sound, text, fonts, forcelan, bitrate, vdui
-export hook, sound, text, fonts, forcelan, bitrate, vdui
+import hook, sound, text, fonts, forcelan, bitrate, scroll
+export hook, sound, text, fonts, forcelan, bitrate, scroll
 
 # Order is load-bearing: font-independent features first so a missing TextBlock cannot
-# stop them, and text before the font-capture features, which need what it resolves. vdui is
-# last and gates nothing: it only reports, and must never hold up a feature that works.
+# stop them, and text before the font-capture features, which need what it resolves.
 let features: seq[Feature] = @[
   Feature(cueSoundsFeature), Feature(bitrateFeature), Feature(forceLanFeature), Feature(
       musicFeature),
   Feature(textFeature), Feature(fontSerializerFeature), Feature(contentLoadFeature),
-  Feature(vdUiFeature)
+  Feature(scrollFeature)
 ]
 
 var gInSetup: Atomic[bool]
