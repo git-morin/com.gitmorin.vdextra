@@ -58,7 +58,7 @@ class MainModule : XposedModule() {
             nativeSetForceLan(readBool(PrefKeys.FORCE_LAN, false))
             nativeSetTextRoom(
                 readBool(PrefKeys.TEXT_ROOM, true),
-                readFloat(PrefKeys.TEXT_ROOM_FACTOR, 0.5f)
+                readFloat(PrefKeys.TEXT_ROOM_FACTOR, 1.5f)
             )
             requestUpdateCheck()
             log(

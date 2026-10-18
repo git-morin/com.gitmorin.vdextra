@@ -335,7 +335,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showTextRoomDialog() = showNumberDialog(
         R.string.dialog_text_room_title, R.string.text_room_hint,
-        prefs().getFloat(PrefKeys.TEXT_ROOM_FACTOR, 0.5f), 0.3f..1f
+        prefs().getFloat(PrefKeys.TEXT_ROOM_FACTOR, 1.5f), 1f..2f
     ) { save(PrefKeys.TEXT_ROOM_FACTOR, it) }
 
     private fun showNumberDialog(
