@@ -58,7 +58,7 @@ class MainModule : XposedModule() {
             nativeSetForceLan(readBool(PrefKeys.FORCE_LAN, false))
             nativeSetSettingsFit(
                 readBool(PrefKeys.SETTINGS_FIT, true),
-                readFloat(PrefKeys.SETTINGS_FIT_TRIM, 2.0f)
+                readFloat(PrefKeys.SETTINGS_FIT_PAD, 16.0f)
             )
             requestUpdateCheck()
             log(
@@ -198,7 +198,7 @@ class MainModule : XposedModule() {
 
     external fun nativeSetForceLan(enable: Boolean)
 
-    external fun nativeSetSettingsFit(enable: Boolean, trim: Float)
+    external fun nativeSetSettingsFit(enable: Boolean, pad: Float)
 
     private companion object {
         const val TAG = "VDExtra"

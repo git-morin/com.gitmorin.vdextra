@@ -7,7 +7,7 @@ internal object PrefKeys {
 
     /** Trims row spacing so a translated settings page fits instead of hiding its last rows. */
     const val SETTINGS_FIT = "settings_fit"
-    const val SETTINGS_FIT_TRIM = "settings_fit_trim"
+    const val SETTINGS_FIT_PAD = "settings_fit_pad"
     const val UPDATE_CHANNEL = "update_channel"
     const val LAST_UPDATE_CHECK = "last_update_check"
     const val MUSIC_VOLUME = "music_volume"

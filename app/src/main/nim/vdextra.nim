@@ -116,13 +116,13 @@ proc Java_com_gitmorin_vdextra_MainModule_nativeSetForceLan(env, thiz: pointer, 
   logI("forceLanFeature=" & $on)
 
 proc Java_com_gitmorin_vdextra_MainModule_nativeSetSettingsFit(
-    env, thiz: pointer, enable: bool, trim: cfloat) {.exportc, cdecl, dynlib.} =
-  var t = float32(trim)
-  if not (t >= 0'f32): t = 2'f32 # also catches NaN
-  if t > 8'f32: t = 8'f32
+    env, thiz: pointer, enable: bool, pad: cfloat) {.exportc, cdecl, dynlib.} =
+  var t = float32(pad)
+  if not (t >= 0'f32): t = 16'f32 # also catches NaN
+  if t > 64'f32: t = 64'f32
   fitFeature.enabled.store(enable)
-  fitFeature.trim.store(t)
-  logI("settingsFit=" & $enable & " trim=" & formatFloat(t, ffDecimal, 1))
+  fitFeature.pad.store(t)
+  logI("settingsFit=" & $enable & " pad=" & formatFloat(t, ffDecimal, 0))
 
 proc vdDictPut(k, v: cstring) {.exportc: "vdDictPut", cdecl, dynlib.} =
   dictPut($k, $v)

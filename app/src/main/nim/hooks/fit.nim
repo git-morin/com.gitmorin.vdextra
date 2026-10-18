@@ -19,9 +19,13 @@ const
   PANEL = "Xenko.UI.Panels.Panel, Xenko.UI"
 
   CELL_HEIGHT = 936'f32 ## the content row of VD's root grid, measured live
-  REPORT_ROWS = 6       ## rows described per column before going quiet
+  REPORT_ROWS = 4       ## rows described per column before going quiet
+
+  ## A column is the settings list; the overlay grids hold a single explicitly sized child.
+  MIN_COLUMN_ROWS = 2
 
   ## Thickness is six floats: left, top, right, bottom, front, back.
+  M_LEFT = 0
   M_TOP = 1
   M_BOTTOM = 3
 
@@ -33,7 +37,7 @@ type
   FitFeature* = ref object of Feature
     loadContent: Hook
     enabled*: Atomic[bool]
-    trim*: Atomic[float32] ## px taken from each row, per edge
+    pad*: Atomic[float32] ## smallest left and top margin a column may end up with
 
     offSettingsTab, offPanelGrid, offMargin: int
     getChildren: GetObjFn
@@ -43,7 +47,7 @@ type
 var fitFeature* = FitFeature(name: "settings fit")
 
 fitFeature.enabled.store(true)
-fitFeature.trim.store(2.0'f32)
+fitFeature.pad.store(16.0'f32)
 
 const
   LIST_ITEMS = 16
@@ -76,30 +80,27 @@ proc heightOf(o: pointer): string =
   if h != h: "auto" else: formatFloat(h, ffDecimal, 0)
 
 proc describe(o: pointer): string =
-  "H=" & heightOf(o) & " margin[t=" & formatFloat(marginAt(o, M_TOP), ffDecimal, 0) &
+  "H=" & heightOf(o) & " margin[l=" & formatFloat(marginAt(o, M_LEFT), ffDecimal, 0) &
+    " t=" & formatFloat(marginAt(o, M_TOP), ffDecimal, 0) &
     " b=" & formatFloat(marginAt(o, M_BOTTOM), ffDecimal, 0) & "]"
 
-## Takes `trim` off each row's bottom edge, falling back to the top edge when the bottom has
-## nothing to give. Returns how much was actually reclaimed, which is the number that decides
-## whether this approach can work at all.
-proc shave(col: pointer): float32 =
-  let f = fitFeature
-  let kids = f.getChildren(col)
-  let n = childCount(kids)
-  if n <= 0 or n > 512: return 0'f32
-  let want = f.trim.load()
-  for i in 0 ..< n:
-    let row = childAt(kids, i)
-    if row == nil: continue
-    let b = marginAt(row, M_BOTTOM)
-    if b >= want:
-      setMarginAt(row, M_BOTTOM, b - want)
-      result += want
-      continue
-    let t = marginAt(row, M_TOP)
-    if t >= want:
-      setMarginAt(row, M_TOP, t - want)
-      result += want
+## The columns overflow by about 20px and their bottom margins alone are worth twice that, so
+## only those are spent. Row spacing and the top margin are left alone: they are what the page
+## reads as, and taking them made it look cramped for no gain.
+proc reclaim(col: pointer): float32 =
+  let b = marginAt(col, M_BOTTOM)
+  if b <= 0'f32: return 0'f32
+  setMarginAt(col, M_BOTTOM, 0'f32)
+  b
+
+## Keeps the content off the panel edge. VD's own value wins wherever it is already larger.
+proc padEdges(col: pointer): bool =
+  let want = fitFeature.pad.load()
+  result = false
+  for edge in [M_LEFT, M_TOP]:
+    if marginAt(col, edge) < want:
+      setMarginAt(col, edge, want)
+      result = true
 
 proc hookLoadContent(self: pointer) {.cdecl.} =
   let f = fitFeature
@@ -129,23 +130,23 @@ proc hookLoadContent(self: pointer) {.cdecl.} =
       if col == nil: continue
       let kids = f.getChildren(col)
       let rows = childCount(kids)
-      logI("fit:   col[" & $i & "] " & describe(col) & " rows=" & $rows)
-      # Row geometry says whether margins are the lever or the rows are sized explicitly.
+
+      # The overlay grids are a single explicitly sized child and are not what gets cut off.
+      if rows < MIN_COLUMN_ROWS:
+        logI("fit:   col[" & $i & "] skipped, " & $rows & " row(s)")
+        continue
+
       for j in 0 ..< min(rows, REPORT_ROWS):
         let row = childAt(kids, j)
         if row != nil:
           logI("fit:     row[" & $j & "] " & describe(row))
 
-      # The column's own margin is one element rather than many, so spend it first.
-      let ct = marginAt(col, M_TOP)
-      let cb = marginAt(col, M_BOTTOM)
-      if ct > 0'f32 or cb > 0'f32:
-        setMarginAt(col, M_TOP, 0'f32)
-        setMarginAt(col, M_BOTTOM, 0'f32)
-        reclaimed += ct + cb
-        logI("fit:   col[" & $i & "] margin t=" & formatFloat(ct, ffDecimal, 0) &
-             " b=" & formatFloat(cb, ffDecimal, 0) & " -> 0")
-      reclaimed += shave(col)
+      let got = reclaim(col)
+      reclaimed += got
+      let padded = padEdges(col)
+      logI("fit:   col[" & $i & "] rows=" & $rows & " reclaimed " &
+           formatFloat(got, ffDecimal, 0) & "px, now " & describe(col) &
+           (if padded: " (padded)" else: ""))
 
     logI("fit: reclaimed " & formatFloat(reclaimed, ffDecimal, 0) &
          "px against a " & formatFloat(CELL_HEIGHT, ffDecimal, 0) & "px cell")
