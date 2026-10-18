@@ -9,6 +9,7 @@ type
   GetF32Fn = proc(tb: pointer): cfloat {.cdecl, gcsafe.}
   SetF32Fn = proc(tb: pointer, v: cfloat) {.cdecl, gcsafe.}
   SetBoolFn = proc(tb: pointer, v: bool) {.cdecl, gcsafe.}
+  GetObjFn = proc(e: pointer): MonoObject {.cdecl, gcsafe.}
 
   TextFeature* = ref object of Feature
     setText, setFont: Hook
@@ -18,6 +19,7 @@ type
     getWidth, getMinWidth, getMaxWidth: GetF32Fn
     setMinWidth: SetF32Fn
     setWrapText: SetBoolFn
+    getParent: GetObjFn
     room*: Atomic[bool]
     roomCap*: Atomic[float32]
     reports: int
@@ -29,7 +31,7 @@ var textFeature* = TextFeature(name: "text", gates: true, blocking: true)
 textFeature.room.store(true)
 textFeature.roomCap.store(1.5'f32)
 
-const REPORT_CAP = 8 ## labels to describe before going quiet
+const REPORT_CAP = 16 ## labels to describe before going quiet
 
 # The font is often assigned after the text, so get_Font alone would leave most labels with no
 # size to work from. TextSize is the next best, and the captured full font is the last resort.
@@ -46,6 +48,31 @@ proc report(what: string) =
   if textFeature.reports >= REPORT_CAP: return
   inc textFeature.reports
   logI("[R] " & what)
+
+proc dim(v: float32): string =
+  if v != v: "auto" else: formatFloat(v, ffDecimal, 0)
+
+## Only float properties are read. RenderSize returns a Vector3 by value, and calling that
+## through a raw pointer would mean hand-rolling the struct-return ABI.
+proc geom(e: pointer): string =
+  let f = textFeature
+  result = objClassName(e)
+  if f.getWidth != nil: result.add "(w=" & dim(float32(f.getWidth(e)))
+  if f.getMinWidth != nil: result.add " min=" & dim(float32(f.getMinWidth(e)))
+  if f.getMaxWidth != nil: result.add " max=" & dim(float32(f.getMaxWidth(e)))
+  result.add ")"
+
+## What bounds an auto-width label is somewhere above it, so the chain is the useful part:
+## the first ancestor with a real width is the element that would have to grow.
+proc parentChain(tb: pointer): string =
+  if textFeature.getParent == nil: return "unavailable"
+  var parts: seq[string] = @[]
+  var cur = tb
+  for _ in 0 ..< 5:
+    cur = textFeature.getParent(cur)
+    if cur == nil: break
+    parts.add geom(cur)
+  if parts.len == 0: "none" else: parts.join(" < ")
 
 # Widens the room the layout gives a translated label instead of squeezing the text into it.
 # MinimumWidth feeds Measure, and Xenko clamps an explicit Width to it, so the parent has to
@@ -67,8 +94,7 @@ proc giveRoom(tb: pointer, src, trans: MonoString) =
   # widening this element achieves nothing.
   let w = float32(textFeature.getWidth(tb))
   if w != w or w <= 0'f32:
-    report("auto width, skipped: size=" & formatFloat(textPointSize(tb), ffDecimal, 1) &
-           " src=" & $sw & " trans=" & $tw)
+    report("auto src=" & $sw & " trans=" & $tw & " " & geom(tb) & " < " & parentChain(tb))
     return
 
   var ratio = float32(tw) / float32(sw)
@@ -87,9 +113,9 @@ proc giveRoom(tb: pointer, src, trans: MonoString) =
     let cur = float32(textFeature.getMinWidth(tb))
     if cur == cur and cur >= need: return
 
-  report("w=" & formatFloat(w, ffDecimal, 1) & " src=" & $sw & " trans=" & $tw &
-         " ratio=" & formatFloat(ratio, ffDecimal, 2) & " -> minw=" &
-         formatFloat(need, ffDecimal, 1))
+  report("fixed src=" & $sw & " trans=" & $tw & " ratio=" &
+         formatFloat(ratio, ffDecimal, 2) & " w=" & dim(w) & " -> min=" &
+         formatFloat(need, ffDecimal, 0) & " < " & parentChain(tb))
   textFeature.setMinWidth(tb, cfloat(need))
 
 proc hookSetText(tb: pointer, s: MonoString) {.cdecl.} =
@@ -141,9 +167,11 @@ method install*(f: TextFeature): bool =
     f.getMinWidth = cast[GetF32Fn](methodAddr(ui, "get_MinimumWidth", 0))
     f.getMaxWidth = cast[GetF32Fn](methodAddr(ui, "get_MaximumWidth", 0))
     f.setMinWidth = cast[SetF32Fn](methodAddr(ui, "set_MinimumWidth", 1))
+    f.getParent = cast[GetObjFn](methodAddr(ui, "get_Parent", 0))
   logI("textRoom members: getWidth=" & $(f.getWidth != nil) & " getMinWidth=" &
        $(f.getMinWidth != nil) & " getMaxWidth=" & $(f.getMaxWidth != nil) &
-       " setMinWidth=" & $(f.setMinWidth != nil) & " uiElement=" & $(ui != nil))
+       " setMinWidth=" & $(f.setMinWidth != nil) & " parent=" & $(f.getParent != nil) &
+       " uiElement=" & $(ui != nil))
 
   let sf = getClass("Xenko.Graphics.SpriteFont, Xenko.Graphics")
   if sf != nil: getSizeFn = cast[GetSizeFn](methodAddr(sf, "get_Size", 0))
