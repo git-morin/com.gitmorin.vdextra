@@ -30,7 +30,6 @@ class MainModule : XposedModule() {
         hookRuntimeInit(param.defaultClassLoader)
 
         try {
-
             var lang = readString(PrefKeys.UI_LANGUAGE, null)
             val fromSystem = lang == null
             if (lang == null) lang = Languages.systemDefault(Languages.available(moduleApk))
@@ -137,7 +136,6 @@ class MainModule : XposedModule() {
             ZipFile(moduleApk).use { zf ->
                 val e = zf.getEntry(Languages.apkEntry(lang))
                 if (e == null) {
-
                     log(Log.WARN, TAG, "no bundled dictionary for language $lang")
                     return m
                 }

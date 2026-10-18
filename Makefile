@@ -12,12 +12,21 @@ APK_DIR := dist/apk
 BRANCH = $(shell git rev-parse --abbrev-ref HEAD)
 ADB := adb -s $(DEVICE)
 CLANG_FORMAT_VERSION := 23.1.3
+KTLINT_VERSION := 1.8.0
+DETEKT_VERSION := 1.23.8
+TOOLS_DIR := .tools
+KTLINT_JAR := $(TOOLS_DIR)/ktlint-$(KTLINT_VERSION).jar
+DETEKT_JAR := $(TOOLS_DIR)/detekt-cli-$(DETEKT_VERSION)-all.jar
+KT_SRC := app/src/main/kotlin
+# The java on PATH can be an old JRE, so prefer JAVA_HOME: it is what CI sets and what these
+# jars need. The subst keeps a Windows JAVA_HOME usable from bash.
+JAVA_BIN := $(if $(JAVA_HOME),$(subst \,/,$(JAVA_HOME))/bin/java,java)
 
 .PHONY: help help-more lint check fmt fmt-check build apk install run ship \
         connect device require-device logs logs-dump tombstones \
-        tombstones-clean clean
+        tombstones-clean clean tools kt-check kt-fmt kt-fmt-check
 
-lint: check fmt-check ## Type-check the Nim and check formatting (needs no Android SDK)
+lint: check fmt-check kt-check kt-fmt-check ## Lint the Nim, C and Kotlin (needs no Android SDK)
 
 check: # Type-check the Nim against the real android target
 	@nim check --hints:off $(NIM_MAIN)
@@ -38,9 +47,32 @@ fmt-check: # Check formatting without rewriting anything
 	fi; \
 	exit $$fail
 
-fmt: ## Reformat the Nim and C sources in place
+fmt: kt-fmt ## Reformat the Nim, C and Kotlin sources in place
 	@for f in $(NIM_SRC); do nimpretty --maxLineLen:100 "$$f"; done
 	@command -v clang-format >/dev/null 2>&1 && clang-format -i $(C_SRC) || true
+
+tools: $(KTLINT_JAR) $(DETEKT_JAR) # Download the pinned Kotlin lint tools
+
+$(KTLINT_JAR):
+	@mkdir -p $(TOOLS_DIR)
+	@echo "fetching ktlint $(KTLINT_VERSION)"
+	@curl -fsSL -o $(TOOLS_DIR)/ktlint.zip https://github.com/ktlint/ktlint/releases/download/$(KTLINT_VERSION)/ktlint-$(KTLINT_VERSION).zip
+	@cd $(TOOLS_DIR) && unzip -oq ktlint.zip && mv -f ktlint-$(KTLINT_VERSION)/bin/ktlint $(notdir $(KTLINT_JAR)) && rm -rf ktlint-$(KTLINT_VERSION) ktlint.zip
+
+$(DETEKT_JAR):
+	@mkdir -p $(TOOLS_DIR)
+	@echo "fetching detekt $(DETEKT_VERSION)"
+	@curl -fsSL -o $(DETEKT_JAR) https://github.com/detekt/detekt/releases/download/v$(DETEKT_VERSION)/$(notdir $(DETEKT_JAR))
+
+# Findings already in the tree are recorded in the baseline, so this fails only on new ones.
+kt-check: $(DETEKT_JAR) # Static analysis of the Kotlin sources
+	@"$(JAVA_BIN)" -jar $(DETEKT_JAR) --input $(KT_SRC) --config config/detekt.yml --build-upon-default-config --baseline config/detekt-baseline.xml
+
+kt-fmt-check: $(KTLINT_JAR) # Check Kotlin formatting without rewriting anything
+	@"$(JAVA_BIN)" -jar $(KTLINT_JAR) "$(KT_SRC)/**/*.kt"
+
+kt-fmt: $(KTLINT_JAR) # Reformat the Kotlin sources in place
+	@"$(JAVA_BIN)" -jar $(KTLINT_JAR) --format "$(KT_SRC)/**/*.kt"
 
 build: ## Push this branch, build it in CI and wait for the result
 	@set -euo pipefail; \

@@ -330,21 +330,19 @@ class MainActivity : AppCompatActivity() {
 
     private fun showScaleDialog() = showNumberDialog(
         R.string.dialog_scale_title, R.string.scale_hint,
-        prefs().getFloat(PrefKeys.BITRATE_SCALE, 2.0f), 2.0f, 1f, 3f
+        prefs().getFloat(PrefKeys.BITRATE_SCALE, 2.0f), 1f..3f
     ) { save(PrefKeys.BITRATE_SCALE, it) }
 
     private fun showTextRoomDialog() = showNumberDialog(
         R.string.dialog_text_room_title, R.string.text_room_hint,
-        prefs().getFloat(PrefKeys.TEXT_ROOM_FACTOR, 0.5f), 0.5f, 0.3f, 1f
+        prefs().getFloat(PrefKeys.TEXT_ROOM_FACTOR, 0.5f), 0.3f..1f
     ) { save(PrefKeys.TEXT_ROOM_FACTOR, it) }
 
     private fun showNumberDialog(
         titleRes: Int,
         hintRes: Int,
         current: Float,
-        fallback: Float,
-        min: Float,
-        max: Float,
+        allowed: ClosedFloatingPointRange<Float>,
         onDone: (Float) -> Unit
     ) {
         val v = LayoutInflater.from(this).inflate(R.layout.dialog_scale, null)
@@ -356,8 +354,9 @@ class MainActivity : AppCompatActivity() {
             .setView(v)
             .setPositiveButton(R.string.action_done, null)
             .setOnDismissListener {
-                val s = input.text.toString().trim().toFloatOrNull() ?: fallback
-                onDone(s.coerceIn(min, max))
+                // Unparseable input keeps the value that was already there.
+                val s = input.text.toString().trim().toFloatOrNull() ?: current
+                onDone(s.coerceIn(allowed))
             }
             .show()
     }
@@ -571,7 +570,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startInstall(r: Updates.Release) {
-
         if (!Updates.canInstall(this)) {
             Toast.makeText(this, R.string.update_needs_permission, Toast.LENGTH_LONG).show()
             try {

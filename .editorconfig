@@ -1,0 +1,25 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# intellij_idea rather than ktlint_official: the stricter style wants trailing commas, braces on
+# every if and no single-line lambdas, which is a restyle of the whole tree rather than linting.
+# 100 columns matches nimpretty --maxLineLen:100 and the C formatting.
+[*.{kt,kts}]
+ktlint_code_style = intellij_idea
+max_line_length = 100
+indent_size = 4
+indent_style = space
+
+# Layout rules that impose a different style on existing code rather than catch defects. The
+# substantive rules (imports, spacing, naming, indentation, semicolons) stay on.
+ktlint_standard_trailing-comma-on-call-site = disabled
+ktlint_standard_trailing-comma-on-declaration-site = disabled
+ktlint_standard_argument-list-wrapping = disabled
+ktlint_standard_statement-wrapping = disabled
+ktlint_standard_function-signature = disabled
+ktlint_standard_multiline-if-else = disabled
