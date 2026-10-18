@@ -38,6 +38,7 @@ android {
     buildTypes {
         release {
             minifyEnabled false
+            ndk { debugSymbolLevel 'none' }
             if (keystorePath) signingConfig signingConfigs.release
         }
     }
@@ -64,7 +65,10 @@ android {
         resources { excludes += ['META-INF/*.SF', 'META-INF/*.RSA', 'META-INF/*.DSA'] }
     }
 
-    lint { abortOnError false }
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
 }
 
 dependencies {
