@@ -115,10 +115,14 @@ proc Java_com_gitmorin_vdextra_MainModule_nativeSetForceLan(env, thiz: pointer, 
   forceLanFeature.enabled.store(on)
   logI("forceLanFeature=" & $on)
 
-proc Java_com_gitmorin_vdextra_MainModule_nativeSetSettingsScroll(
-    env, thiz: pointer, enable: bool) {.exportc, cdecl, dynlib.} =
-  scrollFeature.enabled.store(enable)
-  logI("settingsScroll=" & $enable)
+proc Java_com_gitmorin_vdextra_MainModule_nativeSetSettingsFit(
+    env, thiz: pointer, enable: bool, trim: cfloat) {.exportc, cdecl, dynlib.} =
+  var t = float32(trim)
+  if not (t >= 0'f32): t = 2'f32 # also catches NaN
+  if t > 8'f32: t = 8'f32
+  fitFeature.enabled.store(enable)
+  fitFeature.trim.store(t)
+  logI("settingsFit=" & $enable & " trim=" & formatFloat(t, ffDecimal, 1))
 
 proc vdDictPut(k, v: cstring) {.exportc: "vdDictPut", cdecl, dynlib.} =
   dictPut($k, $v)

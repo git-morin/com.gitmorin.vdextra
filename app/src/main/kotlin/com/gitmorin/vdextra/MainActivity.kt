@@ -65,7 +65,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var swExtend: MaterialSwitch
     private lateinit var swUnlock: MaterialSwitch
     private lateinit var swForceLan: MaterialSwitch
-    private lateinit var swScroll: MaterialSwitch
+    private lateinit var swFit: MaterialSwitch
     private lateinit var slMusicVolume: Slider
     private lateinit var musicVolumeValue: TextView
     private lateinit var musicSourceValue: TextView
@@ -96,7 +96,7 @@ class MainActivity : AppCompatActivity() {
         swExtend = findViewById(R.id.sw_extend)
         swUnlock = findViewById(R.id.sw_unlock)
         swForceLan = findViewById(R.id.sw_force_lan)
-        swScroll = findViewById(R.id.sw_settings_scroll)
+        swFit = findViewById(R.id.sw_settings_fit)
 
         findViewById<BottomNavigationView>(R.id.bottom_nav).setOnItemSelectedListener { item ->
             showPage(if (item.itemId == R.id.nav_options) 1 else 0)
@@ -111,7 +111,7 @@ class MainActivity : AppCompatActivity() {
         swExtend.setOnCheckedChangeListener { _, c -> save(PrefKeys.BITRATE_EXTEND, c) }
         swUnlock.setOnCheckedChangeListener { _, c -> save(PrefKeys.BITRATE_UNLOCK, c) }
         swForceLan.setOnCheckedChangeListener { _, c -> save(PrefKeys.FORCE_LAN, c) }
-        swScroll.setOnCheckedChangeListener { _, c -> save(PrefKeys.SETTINGS_SCROLL, c) }
+        swFit.setOnCheckedChangeListener { _, c -> save(PrefKeys.SETTINGS_FIT, c) }
         swNoPerf.setOnLongClickListener { showSoundDialog(); true }
         swExtend.setOnLongClickListener { showScaleDialog(); true }
         findViewById<View>(R.id.row_no_perf).setOnLongClickListener { showSoundDialog(); true }
@@ -256,7 +256,7 @@ class MainActivity : AppCompatActivity() {
         swExtend.isChecked = p.getBoolean(PrefKeys.BITRATE_EXTEND, false)
         swUnlock.isChecked = p.getBoolean(PrefKeys.BITRATE_UNLOCK, false)
         swForceLan.isChecked = p.getBoolean(PrefKeys.FORCE_LAN, false)
-        swScroll.isChecked = p.getBoolean(PrefKeys.SETTINGS_SCROLL, true)
+        swFit.isChecked = p.getBoolean(PrefKeys.SETTINGS_FIT, true)
         binding = false
     }
 

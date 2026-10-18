@@ -20,8 +20,8 @@
 
     <string name="section_language">Language</string>
     <string name="dict_language_title">UI language</string>
-    <string name="settings_scroll_title">Scroll long settings pages</string>
-    <string name="settings_scroll_support">Let a page taller than the panel scroll instead of hiding the last rows</string>
+    <string name="settings_fit_title">Fit long settings pages</string>
+    <string name="settings_fit_support">Tighten row spacing so a translated page stops hiding its last rows</string>
     <string name="dialog_language_title">Select UI language</string>
     <string name="lang_off">English (no translation)</string>
     <string name="lang_entry_format">%1$s · %2$d entries</string>

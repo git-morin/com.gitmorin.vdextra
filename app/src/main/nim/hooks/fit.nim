@@ -1,0 +1,187 @@
+import std/[atomics, strutils]
+import ../vdlog, ../mono, hook
+
+## Makes VD's settings page fit the space it is given, so its last rows stop being unreachable.
+##
+## Translated strings make the two settings columns 956 tall in a 936 cell. Correcting that
+## after the fact is impossible: VD measures this layout exactly once and never again - a margin
+## write plus InvalidateMeasure on the row, the column and the grid left the desired height at
+## 956 across hundreds of frames. So the only place a size change can land is before that single
+## pass, which is why this hooks LoadContent rather than Update or Draw.
+##
+## The module is loaded from mono.android.Runtime.initInternal, far earlier than anything can
+## attach from outside, which is the only reason this hook point is reachable at all.
+
+const
+  CONTROL_PANEL = "VirtualDesktop.Mobile.ControlPanel, VirtualDesktop.Mobile"
+  UI_PANEL = "VirtualDesktop.Mobile.UIPanel, VirtualDesktop.Mobile"
+  UI_ELEMENT = "Xenko.UI.UIElement, Xenko.UI"
+  PANEL = "Xenko.UI.Panels.Panel, Xenko.UI"
+
+  CELL_HEIGHT = 936'f32 ## the content row of VD's root grid, measured live
+  REPORT_ROWS = 6       ## rows described per column before going quiet
+
+  ## Thickness is six floats: left, top, right, bottom, front, back.
+  M_TOP = 1
+  M_BOTTOM = 3
+
+type
+  VoidRetFn = proc(self: pointer) {.cdecl, gcsafe.}
+  GetObjFn = proc(self: pointer): pointer {.cdecl, gcsafe.}
+  GetF32Fn = proc(self: pointer): cfloat {.cdecl, gcsafe.}
+
+  FitFeature* = ref object of Feature
+    loadContent: Hook
+    enabled*: Atomic[bool]
+    trim*: Atomic[float32] ## px taken from each row, per edge
+
+    offSettingsTab, offPanelGrid, offMargin: int
+    getChildren: GetObjFn
+    getHeight: GetF32Fn
+    applied: bool
+
+var fitFeature* = FitFeature(name: "settings fit")
+
+fitFeature.enabled.store(true)
+fitFeature.trim.store(2.0'f32)
+
+const
+  LIST_ITEMS = 16
+  LIST_SIZE = 24
+  ARRAY_DATA = 32
+
+proc childCount(coll: pointer): int =
+  if coll == nil: 0
+  else: int(cast[ptr int32](cast[uint64](coll) + uint64(LIST_SIZE))[])
+
+proc childAt(coll: pointer, i: int): pointer =
+  let items = cast[ptr pointer](cast[uint64](coll) + uint64(LIST_ITEMS))[]
+  if items == nil: return nil
+  cast[ptr pointer](cast[uint64](items) + uint64(ARRAY_DATA + i * 8))[]
+
+proc marginAt(o: pointer, edge: int): float32 =
+  let off = fitFeature.offMargin
+  if o == nil or off < 0: return 0'f32
+  cast[ptr float32](cast[uint64](o) + uint64(off + edge * 4))[]
+
+proc setMarginAt(o: pointer, edge: int, v: float32) =
+  let off = fitFeature.offMargin
+  if o == nil or off < 0: return
+  cast[ptr float32](cast[uint64](o) + uint64(off + edge * 4))[] = v
+
+proc heightOf(o: pointer): string =
+  let f = fitFeature
+  if f.getHeight == nil or o == nil: return "?"
+  let h = float32(f.getHeight(o))
+  if h != h: "auto" else: formatFloat(h, ffDecimal, 0)
+
+proc describe(o: pointer): string =
+  "H=" & heightOf(o) & " margin[t=" & formatFloat(marginAt(o, M_TOP), ffDecimal, 0) &
+    " b=" & formatFloat(marginAt(o, M_BOTTOM), ffDecimal, 0) & "]"
+
+## Takes `trim` off each row's bottom edge, falling back to the top edge when the bottom has
+## nothing to give. Returns how much was actually reclaimed, which is the number that decides
+## whether this approach can work at all.
+proc shave(col: pointer): float32 =
+  let f = fitFeature
+  let kids = f.getChildren(col)
+  let n = childCount(kids)
+  if n <= 0 or n > 512: return 0'f32
+  let want = f.trim.load()
+  for i in 0 ..< n:
+    let row = childAt(kids, i)
+    if row == nil: continue
+    let b = marginAt(row, M_BOTTOM)
+    if b >= want:
+      setMarginAt(row, M_BOTTOM, b - want)
+      result += want
+      continue
+    let t = marginAt(row, M_TOP)
+    if t >= want:
+      setMarginAt(row, M_TOP, t - want)
+      result += want
+
+proc hookLoadContent(self: pointer) {.cdecl.} =
+  let f = fitFeature
+  let orig = origAs[VoidRetFn](f.loadContent)
+  if orig != nil: orig(self)
+
+  guard "ControlPanel.LoadContent":
+    if not f.enabled.load() or f.applied or self == nil: return
+    let tab = readPtrAt(self, f.offSettingsTab)
+    if tab == nil:
+      logI("fit: settings tab not built yet at LoadContent exit")
+      return
+    let grid = readPtrAt(tab, f.offPanelGrid)
+    if grid == nil:
+      logI("fit: settings grid still null")
+      return
+    f.applied = true
+
+    let cols = f.getChildren(grid)
+    let n = childCount(cols)
+    logI("fit: settings grid " & describe(grid) & " with " & $n & " child(ren)")
+    if n <= 0 or n > 512: return
+
+    var reclaimed = 0'f32
+    for i in 0 ..< n:
+      let col = childAt(cols, i)
+      if col == nil: continue
+      let kids = f.getChildren(col)
+      let rows = childCount(kids)
+      logI("fit:   col[" & $i & "] " & describe(col) & " rows=" & $rows)
+      # Row geometry says whether margins are the lever or the rows are sized explicitly.
+      for j in 0 ..< min(rows, REPORT_ROWS):
+        let row = childAt(kids, j)
+        if row != nil:
+          logI("fit:     row[" & $j & "] " & describe(row))
+
+      # The column's own margin is one element rather than many, so spend it first.
+      let ct = marginAt(col, M_TOP)
+      let cb = marginAt(col, M_BOTTOM)
+      if ct > 0'f32 or cb > 0'f32:
+        setMarginAt(col, M_TOP, 0'f32)
+        setMarginAt(col, M_BOTTOM, 0'f32)
+        reclaimed += ct + cb
+        logI("fit:   col[" & $i & "] margin t=" & formatFloat(ct, ffDecimal, 0) &
+             " b=" & formatFloat(cb, ffDecimal, 0) & " -> 0")
+      reclaimed += shave(col)
+
+    logI("fit: reclaimed " & formatFloat(reclaimed, ffDecimal, 0) &
+         "px against a " & formatFloat(CELL_HEIGHT, ffDecimal, 0) & "px cell")
+
+fitFeature.loadContent = newHook(CONTROL_PANEL, "LoadContent", 0, cast[pointer](hookLoadContent))
+
+method install*(f: FitFeature): bool =
+  if not f.enabled.load():
+    logI("settings fit off: hook skipped")
+    return true
+
+  let cp = getClass(CONTROL_PANEL)
+  let panel = getClass(UI_PANEL)
+  let ui = getClass(UI_ELEMENT)
+  let panelBase = getClass(PANEL)
+  if cp == nil or panel == nil or ui == nil or panelBase == nil:
+    logE("fit: a required class is missing")
+    return false
+
+  f.offSettingsTab = fieldOffset(cp, "_settingsTab")
+  f.offPanelGrid = fieldOffset(panel, "<Grid>k__BackingField")
+  f.offMargin = fieldOffset(ui, "MarginInternal")
+  if f.offSettingsTab < 0 or f.offPanelGrid < 0 or f.offMargin < 0:
+    logE("fit: field layout not as expected (tab=" & $f.offSettingsTab &
+         " grid=" & $f.offPanelGrid & " margin=" & $f.offMargin & ")")
+    return false
+
+  f.getChildren = cast[GetObjFn](methodAddr(panelBase, "get_Children", 0))
+  f.getHeight = cast[GetF32Fn](methodAddr(ui, "get_Height", 0))
+  if f.getChildren == nil:
+    logE("fit: Panel::get_Children not resolvable")
+    return false
+
+  if not f.loadContent.install(cp):
+    logE("fit: ControlPanel::LoadContent hook failed")
+    return false
+
+  logI("hooked ControlPanel::LoadContent to fit the settings page")
+  true

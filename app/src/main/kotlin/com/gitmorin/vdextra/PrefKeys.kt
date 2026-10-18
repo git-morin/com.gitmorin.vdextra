@@ -5,8 +5,9 @@ internal object PrefKeys {
 
     const val UI_LANGUAGE = "ui_language"
 
-/** Lets a settings page taller than its slot scroll, which VD's own layout cannot. */
-    const val SETTINGS_SCROLL = "settings_scroll"
+    /** Trims row spacing so a translated settings page fits instead of hiding its last rows. */
+    const val SETTINGS_FIT = "settings_fit"
+    const val SETTINGS_FIT_TRIM = "settings_fit_trim"
     const val UPDATE_CHANNEL = "update_channel"
     const val LAST_UPDATE_CHECK = "last_update_check"
     const val MUSIC_VOLUME = "music_volume"

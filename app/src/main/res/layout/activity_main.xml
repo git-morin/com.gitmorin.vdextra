@@ -148,7 +148,7 @@
                                 style="@style/VD.Support"/>
                         </LinearLayout>
                         <LinearLayout
-                            android:id="@+id/row_settings_scroll"
+                            android:id="@+id/row_settings_fit"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:orientation="horizontal"
@@ -161,11 +161,11 @@
                                 android:orientation="vertical"
                                 android:paddingTop="8dp"
                                 android:paddingBottom="8dp">
-                                <TextView style="@style/VD.Title" android:text="@string/settings_scroll_title"/>
-                                <TextView style="@style/VD.Support" android:text="@string/settings_scroll_support"/>
+                                <TextView style="@style/VD.Title" android:text="@string/settings_fit_title"/>
+                                <TextView style="@style/VD.Support" android:text="@string/settings_fit_support"/>
                             </LinearLayout>
                             <com.google.android.material.materialswitch.MaterialSwitch
-                                android:id="@+id/sw_settings_scroll"
+                                android:id="@+id/sw_settings_fit"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"/>
                         </LinearLayout>
