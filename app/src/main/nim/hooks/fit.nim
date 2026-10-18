@@ -84,23 +84,24 @@ proc describe(o: pointer): string =
     " t=" & formatFloat(marginAt(o, M_TOP), ffDecimal, 0) &
     " b=" & formatFloat(marginAt(o, M_BOTTOM), ffDecimal, 0) & "]"
 
-## The columns overflow by about 20px and their bottom margins alone are worth twice that, so
-## only those are spent. Row spacing and the top margin are left alone: they are what the page
-## reads as, and taking them made it look cramped for no gain.
+## Spends the column's bottom margin, which is dead space below the list. Row spacing is never
+## touched: taking a slice off every row made the page look cramped and bought little.
 proc reclaim(col: pointer): float32 =
   let b = marginAt(col, M_BOTTOM)
   if b <= 0'f32: return 0'f32
   setMarginAt(col, M_BOTTOM, 0'f32)
   b
 
-## Keeps the content off the panel edge. VD's own value wins wherever it is already larger.
-proc padEdges(col: pointer): bool =
+## Normalises the left and top margin to `pad` rather than only raising it. The columns start
+## inconsistent - one has a 43px top margin, the other 16 - and levelling them both buys the
+## slack the bottom margins alone do not: 40px left the content exactly 936 tall, with nothing
+## spare for the last row's button. Returns how much height this gave back.
+proc padEdges(col: pointer): float32 =
   let want = fitFeature.pad.load()
-  result = false
-  for edge in [M_LEFT, M_TOP]:
-    if marginAt(col, edge) < want:
-      setMarginAt(col, edge, want)
-      result = true
+  result = marginAt(col, M_TOP) - want
+  if result < 0'f32: result = 0'f32
+  setMarginAt(col, M_LEFT, want)
+  setMarginAt(col, M_TOP, want)
 
 proc hookLoadContent(self: pointer) {.cdecl.} =
   let f = fitFeature
@@ -141,12 +142,12 @@ proc hookLoadContent(self: pointer) {.cdecl.} =
         if row != nil:
           logI("fit:     row[" & $j & "] " & describe(row))
 
-      let got = reclaim(col)
-      reclaimed += got
-      let padded = padEdges(col)
+      let fromBottom = reclaim(col)
+      let fromTop = padEdges(col)
+      reclaimed += fromBottom + fromTop
       logI("fit:   col[" & $i & "] rows=" & $rows & " reclaimed " &
-           formatFloat(got, ffDecimal, 0) & "px, now " & describe(col) &
-           (if padded: " (padded)" else: ""))
+           formatFloat(fromBottom, ffDecimal, 0) & "px bottom + " &
+           formatFloat(fromTop, ffDecimal, 0) & "px top, now " & describe(col))
 
     logI("fit: reclaimed " & formatFloat(reclaimed, ffDecimal, 0) &
          "px against a " & formatFloat(CELL_HEIGHT, ffDecimal, 0) & "px cell")
