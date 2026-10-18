@@ -15,47 +15,49 @@ type
     getText: GetTextFn
     getFont: GetFontFn
     getTextSize: GetF32Fn
-    setTextSize: SetF32Fn
+    getMinWidth: GetF32Fn
+    setMinWidth: SetF32Fn
     setWrapText: SetBoolFn
-    fit*: Atomic[bool]
-    fitFloor*: Atomic[float32]
+    room*: Atomic[bool]
+    roomFactor*: Atomic[float32]
 
 const TEXT_BLOCK = "Xenko.UI.Controls.TextBlock, Xenko.UI"
 
 var textFeature* = TextFeature(name: "text", gates: true, blocking: true)
 
-textFeature.fit.store(true)
-textFeature.fitFloor.store(0.75'f32)
+textFeature.room.store(true)
+textFeature.roomFactor.store(0.5'f32)
 
-# A translation wider than the string VD sized its layout against overflows by exactly that
-# ratio, so shrinking the text by the inverse puts it back inside. Only strings the dictionary
-# actually replaced are touched: VD's own text keeps whatever size it chose.
-proc fitText(tb: pointer, src, trans: MonoString) =
-  if not textFeature.fit.load(): return
-  if textFeature.setTextSize == nil or textFeature.getFont == nil: return
-
-  let sw = displayWidth(monoStrChars(src), monoStrLen(src))
-  let tw = displayWidth(monoStrChars(trans), monoStrLen(trans))
-  if sw <= 0 or tw <= sw: return
-
-  let floorV = textFeature.fitFloor.load()
-  var ratio = float32(sw) / float32(tw)
-  let clamped = ratio < floorV
-  if clamped: ratio = floorV
-
-  let natural = fontSize(textFeature.getFont(tb))
-  if natural <= 0'f32: return
-  let target = natural * ratio
-
-  # Shrink only, never grow: a block VD deliberately set smaller keeps its size, and setting
-  # the same string again settles on the same target instead of shrinking a second time.
+# The font is often assigned after the text, so get_Font alone would leave most labels with no
+# size to work from. TextSize is the next best, and the captured full font is the last resort.
+proc textPointSize(tb: pointer): float32 =
+  if textFeature.getFont != nil:
+    let s = fontSize(textFeature.getFont(tb))
+    if s > 0'f32: return s
   if textFeature.getTextSize != nil:
-    let cur = float32(textFeature.getTextSize(tb))
-    if cur > 0'f32 and target >= cur: return
-  textFeature.setTextSize(tb, cfloat(target))
+    let s = float32(textFeature.getTextSize(tb))
+    if s > 0'f32: return s
+  fontSize(goodFont())
 
-  # At the floor the shrink alone cannot recover the width, so let it wrap as well.
-  if clamped and textFeature.setWrapText != nil: textFeature.setWrapText(tb, true)
+# Widens the room the layout gives a translated label instead of squeezing the text into it.
+# MinimumWidth feeds Measure, and Xenko clamps an explicit Width to it, so the parent has to
+# allocate the space either way. A glyph advance averages about half the em and displayWidth
+# already counts a full-width glyph as two, hence the factor.
+proc giveRoom(tb: pointer, trans: MonoString) =
+  if not textFeature.room.load() or textFeature.setMinWidth == nil: return
+
+  let size = textPointSize(tb)
+  if size <= 0'f32: return
+  let need = float32(displayWidth(monoStrChars(trans), monoStrLen(trans))) * size *
+             textFeature.roomFactor.load()
+  if need <= 0'f32: return
+
+  # Raised only, never lowered, so reassigning the same string settles instead of compounding.
+  # An unset MinimumWidth reads back NaN, which the self-comparison rejects.
+  if textFeature.getMinWidth != nil:
+    let cur = float32(textFeature.getMinWidth(tb))
+    if cur == cur and cur >= need: return
+  textFeature.setMinWidth(tb, cfloat(need))
 
 proc hookSetText(tb: pointer, s: MonoString) {.cdecl.} =
   var value = s
@@ -63,7 +65,7 @@ proc hookSetText(tb: pointer, s: MonoString) {.cdecl.} =
     let t = translate(s)
     if t != nil:
       value = t
-      fitText(tb, s, t)
+      giveRoom(tb, t)
   let orig = origAs[SetTextFn](textFeature.setText)
   if orig != nil: orig(tb, value)
 
@@ -96,11 +98,18 @@ method install*(f: TextFeature): bool =
 
   f.getFont = cast[GetFontFn](methodAddr(tb, "get_Font", 0))
   f.getTextSize = cast[GetF32Fn](methodAddr(tb, "get_TextSize", 0))
-  f.setTextSize = cast[SetF32Fn](methodAddr(tb, "set_TextSize", 1))
   f.setWrapText = cast[SetBoolFn](methodAddr(tb, "set_WrapText", 1))
-  logI("textFit members: font=" & $(f.getFont != nil) & " getTextSize=" &
-       $(f.getTextSize != nil) & " setTextSize=" & $(f.setTextSize != nil) &
-       " wrap=" & $(f.setWrapText != nil))
+
+  # MinimumWidth is declared on UIElement, and mono_class_get_method_from_name does not walk
+  # bases, so resolve it there rather than on TextBlock.
+  let ui = getClass("Xenko.UI.UIElement, Xenko.UI")
+  if ui != nil:
+    f.getMinWidth = cast[GetF32Fn](methodAddr(ui, "get_MinimumWidth", 0))
+    f.setMinWidth = cast[SetF32Fn](methodAddr(ui, "set_MinimumWidth", 1))
+  logI("textRoom members: font=" & $(f.getFont != nil) & " textSize=" &
+       $(f.getTextSize != nil) & " getMinWidth=" & $(f.getMinWidth != nil) &
+       " setMinWidth=" & $(f.setMinWidth != nil) & " wrap=" & $(f.setWrapText != nil) &
+       " uiElement=" & $(ui != nil))
 
   let sf = getClass("Xenko.Graphics.SpriteFont, Xenko.Graphics")
   if sf != nil: getSizeFn = cast[GetSizeFn](methodAddr(sf, "get_Size", 0))
