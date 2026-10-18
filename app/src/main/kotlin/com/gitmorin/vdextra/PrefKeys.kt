@@ -5,9 +5,9 @@ internal object PrefKeys {
 
     const val UI_LANGUAGE = "ui_language"
 
-    /** Shrinks a translation that is wider than the layout VD sized for the source string. */
-    const val TEXT_FIT = "text_fit"
-    const val TEXT_FIT_FLOOR = "text_fit_floor"
+    /** Widens a label so a longer translation fits, rather than shrinking the text. */
+    const val TEXT_ROOM = "text_room"
+    const val TEXT_ROOM_FACTOR = "text_room_factor"
     const val UPDATE_CHANNEL = "update_channel"
     const val LAST_UPDATE_CHECK = "last_update_check"
     const val MUSIC_VOLUME = "music_volume"

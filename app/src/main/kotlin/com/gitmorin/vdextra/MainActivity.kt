@@ -65,7 +65,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var swExtend: MaterialSwitch
     private lateinit var swUnlock: MaterialSwitch
     private lateinit var swForceLan: MaterialSwitch
-    private lateinit var swTextFit: MaterialSwitch
+    private lateinit var swTextRoom: MaterialSwitch
     private lateinit var slMusicVolume: Slider
     private lateinit var musicVolumeValue: TextView
     private lateinit var musicSourceValue: TextView
@@ -96,7 +96,7 @@ class MainActivity : AppCompatActivity() {
         swExtend = findViewById(R.id.sw_extend)
         swUnlock = findViewById(R.id.sw_unlock)
         swForceLan = findViewById(R.id.sw_force_lan)
-        swTextFit = findViewById(R.id.sw_text_fit)
+        swTextRoom = findViewById(R.id.sw_text_room)
 
         findViewById<BottomNavigationView>(R.id.bottom_nav).setOnItemSelectedListener { item ->
             showPage(if (item.itemId == R.id.nav_options) 1 else 0)
@@ -111,13 +111,13 @@ class MainActivity : AppCompatActivity() {
         swExtend.setOnCheckedChangeListener { _, c -> save(PrefKeys.BITRATE_EXTEND, c) }
         swUnlock.setOnCheckedChangeListener { _, c -> save(PrefKeys.BITRATE_UNLOCK, c) }
         swForceLan.setOnCheckedChangeListener { _, c -> save(PrefKeys.FORCE_LAN, c) }
-        swTextFit.setOnCheckedChangeListener { _, c -> save(PrefKeys.TEXT_FIT, c) }
+        swTextRoom.setOnCheckedChangeListener { _, c -> save(PrefKeys.TEXT_ROOM, c) }
         swNoPerf.setOnLongClickListener { showSoundDialog(); true }
         swExtend.setOnLongClickListener { showScaleDialog(); true }
         findViewById<View>(R.id.row_no_perf).setOnLongClickListener { showSoundDialog(); true }
         findViewById<View>(R.id.row_extend).setOnLongClickListener { showScaleDialog(); true }
-        swTextFit.setOnLongClickListener { showTextFitDialog(); true }
-        findViewById<View>(R.id.row_text_fit).setOnLongClickListener { showTextFitDialog(); true }
+        swTextRoom.setOnLongClickListener { showTextRoomDialog(); true }
+        findViewById<View>(R.id.row_text_room).setOnLongClickListener { showTextRoomDialog(); true }
 
         findViewById<View>(R.id.row_music_source).setOnClickListener { showMusicSourceDialog() }
         findViewById<View>(R.id.row_about).setOnClickListener { showAboutDialog() }
@@ -258,7 +258,7 @@ class MainActivity : AppCompatActivity() {
         swExtend.isChecked = p.getBoolean(PrefKeys.BITRATE_EXTEND, false)
         swUnlock.isChecked = p.getBoolean(PrefKeys.BITRATE_UNLOCK, false)
         swForceLan.isChecked = p.getBoolean(PrefKeys.FORCE_LAN, false)
-        swTextFit.isChecked = p.getBoolean(PrefKeys.TEXT_FIT, true)
+        swTextRoom.isChecked = p.getBoolean(PrefKeys.TEXT_ROOM, true)
         binding = false
     }
 
@@ -333,10 +333,10 @@ class MainActivity : AppCompatActivity() {
         prefs().getFloat(PrefKeys.BITRATE_SCALE, 2.0f), 2.0f, 1f, 3f
     ) { save(PrefKeys.BITRATE_SCALE, it) }
 
-    private fun showTextFitDialog() = showNumberDialog(
-        R.string.dialog_text_fit_title, R.string.text_fit_hint,
-        prefs().getFloat(PrefKeys.TEXT_FIT_FLOOR, 0.75f), 0.75f, 0.5f, 1f
-    ) { save(PrefKeys.TEXT_FIT_FLOOR, it) }
+    private fun showTextRoomDialog() = showNumberDialog(
+        R.string.dialog_text_room_title, R.string.text_room_hint,
+        prefs().getFloat(PrefKeys.TEXT_ROOM_FACTOR, 0.5f), 0.5f, 0.3f, 1f
+    ) { save(PrefKeys.TEXT_ROOM_FACTOR, it) }
 
     private fun showNumberDialog(
         titleRes: Int,

@@ -115,14 +115,14 @@ proc Java_com_gitmorin_vdextra_MainModule_nativeSetForceLan(env, thiz: pointer, 
   forceLanFeature.enabled.store(on)
   logI("forceLanFeature=" & $on)
 
-proc Java_com_gitmorin_vdextra_MainModule_nativeSetTextFit(
-    env, thiz: pointer, enable: bool, floorV: cfloat) {.exportc, cdecl, dynlib.} =
-  var f = float32(floorV)
-  if not (f >= 0.5'f32): f = 0.75'f32 # also catches NaN
+proc Java_com_gitmorin_vdextra_MainModule_nativeSetTextRoom(
+    env, thiz: pointer, enable: bool, factor: cfloat) {.exportc, cdecl, dynlib.} =
+  var f = float32(factor)
+  if not (f >= 0.3'f32): f = 0.5'f32 # also catches NaN
   if f > 1'f32: f = 1'f32
-  textFeature.fit.store(enable)
-  textFeature.fitFloor.store(f)
-  logI("textFit enable=" & $enable & " floor=" & formatFloat(f, ffDecimal, 2))
+  textFeature.room.store(enable)
+  textFeature.roomFactor.store(f)
+  logI("textRoom enable=" & $enable & " factor=" & formatFloat(f, ffDecimal, 2))
 
 proc vdDictPut(k, v: cstring) {.exportc: "vdDictPut", cdecl, dynlib.} =
   dictPut($k, $v)
