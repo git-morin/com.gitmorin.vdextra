@@ -7,6 +7,8 @@ internal object PrefKeys {
 
     /** Widens a label so a longer translation fits, rather than shrinking the text. */
     const val TEXT_ROOM = "text_room"
+
+    /** Ceiling on that widening, as a multiple of the width VD gave the label. */
     const val TEXT_ROOM_FACTOR = "text_room_factor"
     const val UPDATE_CHANNEL = "update_channel"
     const val LAST_UPDATE_CHECK = "last_update_check"

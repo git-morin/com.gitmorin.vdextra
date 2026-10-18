@@ -17,13 +17,13 @@
     <string name="dialog_scale_title">Bitrate multiplier</string>
     <string name="action_done">Done</string>
     <string name="scale_hint">Bitrate multiplier (1 - 3)</string>
-    <string name="dialog_text_room_title">Label width factor</string>
-    <string name="text_room_hint">Width per character, relative to text size (0.3 - 1)</string>
+    <string name="dialog_text_room_title">Widest a label may get</string>
+    <string name="text_room_hint">Multiple of the width VD gave it (1 - 2)</string>
 
     <string name="section_language">Language</string>
     <string name="dict_language_title">UI language</string>
     <string name="text_room_title">Widen translated labels</string>
-    <string name="text_room_support">Give a longer translation more room instead of shrinking it. Long-press to tune</string>
+    <string name="text_room_support">Give a longer translation more room instead of shrinking it. Long-press to cap how much</string>
     <string name="dialog_language_title">Select UI language</string>
     <string name="lang_off">English (no translation)</string>
     <string name="lang_entry_format">%1$s · %2$d entries</string>
