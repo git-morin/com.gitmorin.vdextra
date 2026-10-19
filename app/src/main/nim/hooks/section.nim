@@ -61,6 +61,17 @@ const
   PLACEHOLDER_TEXT = "VDExtra settings will live here."
   PLACEHOLDER_SIZE = 20.0
 
+  TEST_BUTTON_TEXT = "Test button"
+  TEST_BUTTON_HEIGHT = 56.0
+  TEST_BUTTON_WIDTH = 260.0
+
+  ## Our page grid has no strip definitions, so every child stretches over the whole cell.
+  ## Pinning each to the top-left and offsetting by margin is what separates them.
+  ALIGN_TOP_LEFT = 1'i32
+  PAGE_INSET = 40.0
+  LABEL_TOP = 40.0
+  BUTTON_TOP = 110.0
+
   ## VD's entries measure 81 tall; ours measures to its text at 41, since it carries none of
   ## the padding theirs get from the serialised asset. Setting it explicitly is enough now the
   ## entry is in Panel.Children and therefore part of the measure pass.
@@ -92,6 +103,11 @@ type
     setClickMode: SetI32Fn
     setHeight: SetF32Fn
     setVisibility: SetI32Fn
+    setHAlign, setVAlign: SetI32Fn
+    setWidth: SetF32Fn
+    offMargin: int
+    testButton: pointer ## the page's own button, pinned
+    testWasPressed: bool
     getVisibility: GetI32Fn
     containerSetObject: SetObj2Fn
     containerGetItem: GetObj2Fn
@@ -99,10 +115,10 @@ type
     rowKey, columnKey: MonoObject
     offDepProps, offPanelGrid, offTabPanels: int
     offForceDrawAll: int
-    content: pointer ## our tab's grid, pinned
+    content: pointer    ## our tab's grid, pinned
     showing, wasShowing: bool
     redrawFrames: int
-    entry: pointer   ## our nav button, pinned
+    entry: pointer      ## our nav button, pinned
     wasPressed: bool
 
     offGridMain, offRenderer, offFont, offLayoutCtx, offParent: int
@@ -183,6 +199,18 @@ proc adoptFrom(fresh, model: pointer, offsets: openArray[int]) =
     let v = readPtrAt(model, off)
     if v != nil: writePtrAt(fresh, off, v)
 
+## Pins an element to the page's top-left and offsets it, so siblings that would otherwise
+## stretch over the whole cell end up stacked instead.
+proc placeInPage(el: pointer, top: float) =
+  let f = sectionFeature
+  if el == nil: return
+  if f.setHAlign != nil: f.setHAlign(el, ALIGN_TOP_LEFT)
+  if f.setVAlign != nil: f.setVAlign(el, ALIGN_TOP_LEFT)
+  if f.offMargin < 0: return
+  let m = cast[ptr UncheckedArray[float32]](cast[uint64](el) + uint64(f.offMargin))
+  m[0] = float32(PAGE_INSET)
+  m[1] = float32(top)
+
 proc copyBackground(fresh, model: pointer) =
   if fresh == nil or model == nil: return
   let colour = cast[ptr uint32](cast[uint64](model) + uint64(BACKGROUND_COLOR_OFFSET))[]
@@ -223,41 +251,48 @@ proc inactiveTextColor(entries: pointer, count: int): uint32 =
       bestHits = tally[j].hits
       result = tally[j].colour
 
-proc buildEntry(model: pointer): pointer =
+## Builds a label styled after `modelText`. The font is copied as a field rather than through
+## set_Font: that setter is hooked by the text feature, which substitutes fonts for glyph
+## coverage and would discard this one. Without a font DefaultTextBlockRenderer.RenderColor
+## dereferences null and the game thread aborts.
+proc makeLabel(modelText: pointer, caption: string): pointer =
   let f = sectionFeature
-  let btn = newInstance(f.buttonClass)
-  if btn == nil: return nil
-  discard pin(btn)
-
   let label = newInstance(f.textClass)
   if label == nil: return nil
   discard pin(label)
-
-  # layoutingContext is what RenderColor reaches through; it is null on a fresh control and
-  # only ever assigned during VD's own layout pass, so the model's is adopted with the rest.
-  adoptFrom(btn, model, [f.offRenderer, f.offPressed, f.offNotPressed, f.offMouseOver,
-                         f.offLayoutCtx])
-
-  let name = makeMono(SECTION_NAME)
-  if name == nil: return nil
-  f.setText(label, name)
-
-  # Match the existing entries so the new one is not styled differently.
-  # The font is copied as a field rather than through set_Font: that setter is hooked by the
-  # text feature, which substitutes fonts for glyph coverage and would discard this one. Without
-  # a font DefaultTextBlockRenderer.RenderColor dereferences null and the game thread aborts.
-  let modelText = firstTextBlock(model, 0)
+  let text = makeMono(caption)
+  if text == nil: return nil
+  f.setText(label, text)
   if modelText != nil:
     adoptFrom(label, modelText, [f.offRenderer, f.offFont, f.offLayoutCtx])
     if f.getTextSize != nil and f.setTextSize != nil:
       f.setTextSize(label, f.getTextSize(modelText))
+    setTextColorAt(label, textColorAt(modelText))
+  label
+
+## Builds a button styled after `model`, one of VD's own. layoutingContext is what RenderColor
+## reaches through; it is null on a fresh control and only ever assigned during VD's own layout
+## pass, so the model's is adopted along with the renderer and sprites.
+proc makeButton(model: pointer, caption: string, height: float): pointer =
+  let f = sectionFeature
+  let btn = newInstance(f.buttonClass)
+  if btn == nil: return nil
+  discard pin(btn)
+  adoptFrom(btn, model, [f.offRenderer, f.offPressed, f.offNotPressed, f.offMouseOver,
+                         f.offLayoutCtx])
+
+  let label = makeLabel(firstTextBlock(model, 0), caption)
+  if label == nil: return nil
+
   # ClickMode 0 is what VD's own entries use; a fresh Button defaults to 1 and would react on
   # release rather than press, which get_IsPressed never shows.
   if f.setClickMode != nil: f.setClickMode(btn, 0'i32)
-  if f.setHeight != nil: f.setHeight(btn, cfloat(NAV_ENTRY_HEIGHT))
-
+  if f.setHeight != nil: f.setHeight(btn, cfloat(height))
   f.setContent(btn, label)
   btn
+
+proc buildEntry(model: pointer): pointer =
+  makeButton(model, SECTION_NAME, NAV_ENTRY_HEIGHT)
 
 ## Lists the reference fields set on `model` but still null on `fresh`, which is exactly the set
 ## that must be adopted for a constructed control to survive a draw.
@@ -304,7 +339,7 @@ proc placeInTabCell(grid, model: pointer) =
 
 ## Builds the tab's content: a grid carrying one placeholder label, styled from a real tab so
 ## it inherits the renderer and layout context a constructed control never receives.
-proc buildContent(modelGrid, modelText: pointer): pointer =
+proc buildContent(modelGrid, modelText, modelButton: pointer): pointer =
   let f = sectionFeature
   let grid = newInstance(f.gridClass)
   if grid == nil: return nil
@@ -313,20 +348,25 @@ proc buildContent(modelGrid, modelText: pointer): pointer =
   copyBackground(grid, modelGrid)
   placeInTabCell(grid, modelGrid)
 
-  let label = newInstance(f.textClass)
+  let label = makeLabel(modelText, PLACEHOLDER_TEXT)
   if label == nil: return nil
-  discard pin(label)
-  adoptFrom(label, modelText, [f.offRenderer, f.offFont, f.offLayoutCtx])
-  let text = makeMono(PLACEHOLDER_TEXT)
-  if text == nil: return nil
-  f.setText(label, text)
   if f.setTextSize != nil: f.setTextSize(label, cfloat(PLACEHOLDER_SIZE))
-  setTextColorAt(label, textColorAt(modelText))
+
+  placeInPage(label, LABEL_TOP)
 
   let kids = f.getChildren(grid)
   let add = resolveAdd(kids)
   if add == nil: return nil
   add(kids, label)
+
+  # A real control on our own page: proof the section is not just a label, and the thing whose
+  # presses the poll reports.
+  let button = makeButton(modelButton, TEST_BUTTON_TEXT, TEST_BUTTON_HEIGHT)
+  if button != nil:
+    if f.setWidth != nil: f.setWidth(button, cfloat(TEST_BUTTON_WIDTH))
+    placeInPage(button, BUTTON_TOP)
+    add(kids, button)
+    f.testButton = button
 
   if f.setVisibility != nil: f.setVisibility(grid, VISIBILITY_HIDDEN)
   grid
@@ -395,6 +435,15 @@ proc pollEntry(self: pointer) {.nimcall.} =
     logI("section: " & SECTION_NAME & " selected")
   f.wasPressed = pressed
 
+  # The page's own button, reported only while the page is up so a stray read cannot fire it.
+  if f.showing and f.testButton != nil:
+    let testPressed = f.getPressed(f.testButton)
+    if testPressed and not f.testWasPressed:
+      logI("section: " & TEST_BUTTON_TEXT & " clicked")
+    f.testWasPressed = testPressed
+  else:
+    f.testWasPressed = false
+
   syncContent(self)
   if f.showing != f.wasShowing:
     f.wasShowing = f.showing
@@ -459,7 +508,7 @@ proc onPanelLoaded(self: pointer) {.nimcall.} =
     let modelGrid = if firstTab == nil: nil else: readPtrAt(firstTab, f.offPanelGrid)
     if modelGrid != nil:
       let modelText = firstTextBlock(model, 0)
-      let content = buildContent(modelGrid, modelText)
+      let content = buildContent(modelGrid, modelText, model)
       if content == nil:
         logE("section: could not build the tab content")
       else:
@@ -522,6 +571,10 @@ method install*(f: SectionFeature): bool =
   f.getPressed = cast[GetBoolFn](methodAddr(buttonBase, "get_IsPressed", 0))
   f.setClickMode = cast[SetI32Fn](methodAddr(buttonBase, "set_ClickMode", 1))
   f.setHeight = cast[SetF32Fn](methodAddr(ui, "set_Height", 1))
+  f.setWidth = cast[SetF32Fn](methodAddr(ui, "set_Width", 1))
+  f.setHAlign = cast[SetI32Fn](methodAddr(ui, "set_HorizontalAlignment", 1))
+  f.setVAlign = cast[SetI32Fn](methodAddr(ui, "set_VerticalAlignment", 1))
+  f.offMargin = fieldOffset(ui, "MarginInternal")
   f.setVisibility = cast[SetI32Fn](methodAddr(ui, "set_Visibility", 1))
   f.getVisibility = cast[GetI32Fn](methodAddr(ui, "get_Visibility", 0))
 
