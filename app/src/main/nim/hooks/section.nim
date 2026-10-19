@@ -262,6 +262,11 @@ proc onPanelLoaded(self: pointer) {.nimcall.} =
     logI("section: dry run, " & SECTION_NAME & " built but not attached to the " &
          $stackCount & "-entry nav")
   else:
+    let inactive = inactiveTextColor(entries, childCount(entries))
+    let entryText = firstTextBlock(entry, 0)
+    if inactive != 0 and entryText != nil:
+      cast[ptr uint32](cast[uint64](entryText) + uint64(TEXT_COLOR_OFFSET))[] = inactive
+
     add(entries, entry)
     f.entry = entry
 
