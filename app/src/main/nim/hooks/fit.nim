@@ -80,6 +80,12 @@ proc childAt(coll: pointer, i: int): pointer =
   if items == nil: return nil
   cast[ptr pointer](cast[uint64](items) + uint64(ARRAY_DATA + i * 8))[]
 
+## A collection holds its storage behind an items pointer; a managed array *is* the storage.
+## Both report their length at the same offset, so only the element read differs.
+proc arrayAt(arr: pointer, i: int): pointer =
+  if arr == nil: return nil
+  cast[ptr pointer](cast[uint64](arr) + uint64(ARRAY_DATA + i * 8))[]
+
 proc marginAt(o: pointer, edge: int): float32 =
   let off = fitFeature.offMargin
   if o == nil or off < 0: return 0'f32
@@ -206,7 +212,7 @@ proc hookLoadContent(self: pointer) {.cdecl.} =
       return
 
     for i in 0 ..< count:
-      let tab = childAt(tabs, i)
+      let tab = arrayAt(tabs, i)
       if tab == nil: continue
       let grid = readPtrAt(tab, f.offPanelGrid)
       if grid == nil: continue
