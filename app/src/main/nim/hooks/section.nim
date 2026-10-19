@@ -14,6 +14,7 @@ import ../vdlog, ../mono, hook, loadcontent, panelupdate
 
 const
   UI_ELEMENT = "Xenko.UI.UIElement, Xenko.UI"
+  PANEL = "Xenko.UI.Panels.Panel, Xenko.UI"
   BUTTON = "Xenko.UI.Controls.Button, Xenko.UI"
   BUTTON_BASE = "Xenko.UI.Controls.ButtonBase, Xenko.UI"
   TEXT_BLOCK = "Xenko.UI.Controls.TextBlock, Xenko.UI"
@@ -28,11 +29,6 @@ const
   MIN_NAV_ENTRIES = 4
   NAV_SEARCH_DEPTH = 8
 
-  ## What VD's measure pass settles on for a nav entry: the column is a fixed 300 wide and the
-  ## entries below the first are 81 tall. Hard-coded because our entry is built before any
-  ## measure has run, so no laid-out sibling exists to copy a size from yet.
-  NAV_ENTRY_WIDTH = 300.0
-  NAV_ENTRY_HEIGHT = 81.0
 
   ## Builds the entry and reports what is still unset, without attaching it. Inserting a control
   ## that is missing something aborts the game thread, and the stack only ever names the first
@@ -54,7 +50,6 @@ type
     enabled*: Atomic[bool]
     getPressed: GetBoolFn
     setClickMode: SetI32Fn
-    setWidth, setHeight: SetF32Fn
     entry: pointer ## our nav button, pinned
     wasPressed: bool
 
@@ -62,6 +57,7 @@ type
     offPressed, offNotPressed, offMouseOver: int
     buttonClass, textClass: MonoClass
     getVisualChildren: GetObjFn
+    getChildren: GetObjFn
     setContent: SetObjFn
     setText: SetStrFn
     setTextSize: SetF32Fn
@@ -181,13 +177,6 @@ proc buildEntry(model: pointer): pointer =
   # release rather than press, which get_IsPressed never shows.
   if f.setClickMode != nil: f.setClickMode(btn, 0'i32)
 
-  # VD's own entries carry W=NaN and are sized by the measure pass. Ours arrives after that
-  # pass, so it is given the dimensions the pass would have produced; without them it stays
-  # 0x0 - drawn, but occupying no space and offering no area to hit.
-  if f.setWidth != nil and f.setHeight != nil:
-    f.setWidth(btn, cfloat(NAV_ENTRY_WIDTH))
-    f.setHeight(btn, cfloat(NAV_ENTRY_HEIGHT))
-
   f.setContent(btn, label)
   btn
 
@@ -237,7 +226,10 @@ proc onPanelLoaded(self: pointer) {.nimcall.} =
     return
   f.applied = true
 
-  let entries = f.getVisualChildren(stack)
+  # Panel.Children, not VisualChildren: MeasureOverride and ArrangeOverride iterate Children,
+  # so an element added only to the visual tree draws but is never measured, arranged or
+  # hit-tested - which is exactly 0x0 size, wrong position, and no response to clicks.
+  let entries = f.getChildren(stack)
   let model = childAt(entries, 0)
   if model == nil:
     logI("section: nav has no entry to copy")
@@ -299,11 +291,13 @@ method install*(f: SectionFeature): bool =
     return false
 
   f.getVisualChildren = cast[GetObjFn](methodAddr(ui, "get_VisualChildren", 0))
+  f.getChildren = cast[GetObjFn](methodAddr(getClass(PANEL), "get_Children", 0))
   f.setContent = cast[SetObjFn](methodAddr(content, "set_Content", 1))
   f.setText = cast[SetStrFn](methodAddr(f.textClass, "set_Text", 1))
   f.setTextSize = cast[SetF32Fn](methodAddr(f.textClass, "set_TextSize", 1))
   f.getTextSize = cast[GetF32Fn](methodAddr(f.textClass, "get_TextSize", 0))
-  if f.getVisualChildren == nil or f.setContent == nil or f.setText == nil:
+  if f.getVisualChildren == nil or f.getChildren == nil or
+     f.setContent == nil or f.setText == nil:
     logE("section: a required member is missing")
     return false
 
@@ -313,11 +307,6 @@ method install*(f: SectionFeature): bool =
     return false
   f.getPressed = cast[GetBoolFn](methodAddr(buttonBase, "get_IsPressed", 0))
   f.setClickMode = cast[SetI32Fn](methodAddr(buttonBase, "set_ClickMode", 1))
-  f.setWidth = cast[SetF32Fn](methodAddr(ui, "set_Width", 1))
-  f.setHeight = cast[SetF32Fn](methodAddr(ui, "set_Height", 1))
-  if f.setWidth == nil or f.setHeight == nil:
-    logE("section: set_Width/set_Height missing, the entry would have no size")
-    return false
   if f.getPressed == nil:
     logE("section: ButtonBase::get_IsPressed not resolvable")
     return false
