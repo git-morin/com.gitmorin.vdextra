@@ -68,10 +68,13 @@ const
   TEST_BUTTON_WIDTH = 260.0
 
   ## Our page grid has no strip definitions, so every child stretches over the whole cell.
-  ## Pinning each to the top-left and offsetting by margin is what separates them. Xenko orders
-  ## these Left/Top, Center, Right/Bottom, Stretch - VD's own stretched controls read 3, which
-  ## is how the value was confirmed rather than guessed.
-  ALIGN_TOP_LEFT = 0'i32
+  ## Pinning each to the top-left and offsetting by margin is what separates them.
+  ##
+  ## The two enums are NOT ordered alike, which is worth stating because assuming they were
+  ## cost two builds: HorizontalAlignment is Left/Center/Right/Stretch, VerticalAlignment is
+  ## Bottom/Center/Top/Stretch. Both values were read from metadata, not inferred.
+  ALIGN_LEFT = 0'i32
+  ALIGN_TOP = 2'i32
   PAGE_INSET = 40.0
   LABEL_TOP = 40.0
   BUTTON_TOP = 110.0
@@ -219,8 +222,8 @@ proc adoptFrom(fresh, model: pointer, offsets: openArray[int]) =
 proc placeInPage(el: pointer, top: float) =
   let f = sectionFeature
   if el == nil: return
-  if f.setHAlign != nil: f.setHAlign(el, ALIGN_TOP_LEFT)
-  if f.setVAlign != nil: f.setVAlign(el, ALIGN_TOP_LEFT)
+  if f.setHAlign != nil: f.setHAlign(el, ALIGN_LEFT)
+  if f.setVAlign != nil: f.setVAlign(el, ALIGN_TOP)
   if f.offMargin < 0: return
   let m = cast[ptr UncheckedArray[float32]](cast[uint64](el) + uint64(f.offMargin))
   m[0] = float32(PAGE_INSET)
