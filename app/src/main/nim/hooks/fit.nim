@@ -30,9 +30,11 @@ const
   WALK_DEPTH = 6
 
   ## Wrapping buys correctness but costs height: with it on, the left column measured 980 in the
-  ## 920 it is given, because a few descriptions legitimately gained a line. 14 rows share that
-  ## 60px shortfall, so this pays for it out of row spacing rather than out of the translations.
-  ROW_TRIM = 5'f32
+  ## 920 it is given, because a few descriptions legitimately gained a line. This pays for that
+  ## out of row spacing rather than out of the translations. Taken from both edges so the gap
+  ## shrinks evenly - 5px off one edge alone only found 35 of the 60px needed, since half the
+  ## rows lead with no top margin at all.
+  ROW_TRIM = 4'f32
 
   ## Thickness is six floats: left, top, right, bottom, front, back.
   M_LEFT = 0
@@ -121,8 +123,8 @@ proc padEdges(col: pointer): float32 =
   setMarginAt(col, M_LEFT, want)
   setMarginAt(col, M_TOP, want)
 
-## Takes `ROW_TRIM` off each row's leading gap, never below zero. Rows whose gap is already
-## smaller give what they have rather than being pushed into their neighbour.
+## Takes `ROW_TRIM` off each row's gap, top and bottom, never below zero. A row whose margin is
+## already smaller gives what it has rather than being pushed into its neighbour.
 proc trimRows(col: pointer): float32 =
   let f = fitFeature
   let kids = f.getChildren(col)
@@ -131,11 +133,12 @@ proc trimRows(col: pointer): float32 =
   for i in 0 ..< n:
     let row = childAt(kids, i)
     if row == nil: continue
-    let t = marginAt(row, M_TOP)
-    if t <= 0'f32: continue
-    let take = min(t, ROW_TRIM)
-    setMarginAt(row, M_TOP, t - take)
-    result += take
+    for edge in [M_TOP, M_BOTTOM]:
+      let m = marginAt(row, edge)
+      if m <= 0'f32: continue
+      let take = min(m, ROW_TRIM)
+      setMarginAt(row, edge, m - take)
+      result += take
 
 proc isTextBlock(o: pointer): bool =
   let target = fitFeature.textBlockClass
