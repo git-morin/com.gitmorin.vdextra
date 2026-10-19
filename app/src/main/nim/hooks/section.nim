@@ -49,6 +49,8 @@ const
   ## A sanity bound on the tab array before it is walked.
   MAX_TABS = 64
 
+  F_RENDER_WIDTH = 104 ## RenderSize.X, the width VD's layout settled on
+
   ## How long to keep asking for a full repaint after the page is shown or hidden. One frame
   ## leaves the previous tab's pixels on screen: VD clears its dirty regions over several
   ## frames, and a visibility flip made behind its back is not one of them.
@@ -82,6 +84,11 @@ const
   ## Nav entries span the 300-wide column; the chromed buttons in the bottom bar are narrower,
   ## which is what tells the two apart when looking for a model to copy a button's look from.
   NAV_ENTRY_WIDTH = 300.0
+
+  ## ...but the panel also holds square icon buttons, whose sprite stretched across a wide
+  ## button renders as a thin bar. A text button is wider than it is tall, which separates the
+  ## two without naming either.
+  MODEL_BUTTON_MIN_WIDTH = 150.0
 
 
   ## Builds the entry and reports what is still unset, without attaching it. Inserting a control
@@ -368,8 +375,9 @@ proc findChromedButton(root: pointer, depth: int, best: var pointer): void =
   for i in 0 ..< n:
     let child = childAt(kids, i)
     if child == nil: continue
+    let width = readF32At(child, F_RENDER_WIDTH)
     if isButton(child) and readPtrAt(child, f.offNotPressed) != nil and
-       readF32At(child, 104) < NAV_ENTRY_WIDTH:
+       width >= MODEL_BUTTON_MIN_WIDTH and width < NAV_ENTRY_WIDTH:
       best = child
       return
     findChromedButton(child, depth + 1, best)
