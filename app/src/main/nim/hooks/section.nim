@@ -35,7 +35,8 @@ type
   SectionFeature* = ref object of Feature
     enabled*: Atomic[bool]
 
-    offGridMain, offDepProps: int
+    offGridMain, offDepProps, offRenderer: int
+    offPressed, offNotPressed, offMouseOver: int
     buttonClass, textClass: MonoClass
     getVisualChildren: GetObjFn
     setContent: SetObjFn
@@ -48,10 +49,7 @@ type
 
 var sectionFeature* = SectionFeature(name: "vdextra section")
 
-## Off: a Button built with mono_object_new is missing the sprites and template VD's own
-## construction gives it, and the game thread aborts (SIGABRT) once layout touches it. Adding
-## the entry succeeds; using it is what fails. See the note in the feasibility findings.
-sectionFeature.enabled.store(false)
+sectionFeature.enabled.store(true)
 
 const
   LIST_ITEMS = 16
@@ -119,6 +117,15 @@ proc findNavStack(el: pointer, depth: int): pointer =
     if hit != nil: return hit
   nil
 
+## mono_object_new allocates the object but runs none of the wiring VD's deserialiser does.
+## The gap that matters is Renderer: it is null on a fresh control, and the game thread aborts
+## the moment a draw dereferences it. The sprites are what the button is actually painted with.
+proc adoptFrom(fresh, model: pointer, offsets: openArray[int]) =
+  for off in offsets:
+    if off < 0: continue
+    let v = readPtrAt(model, off)
+    if v != nil: writePtrAt(fresh, off, v)
+
 proc buildEntry(model: pointer): pointer =
   let f = sectionFeature
   let btn = newInstance(f.buttonClass)
@@ -129,6 +136,8 @@ proc buildEntry(model: pointer): pointer =
   if label == nil: return nil
   discard pin(label)
 
+  adoptFrom(btn, model, [f.offRenderer, f.offPressed, f.offNotPressed, f.offMouseOver])
+
   let name = makeMono(SECTION_NAME)
   if name == nil: return nil
   f.setText(label, name)
@@ -136,6 +145,7 @@ proc buildEntry(model: pointer): pointer =
   # Match the existing entries so the new one is not styled differently.
   let modelText = firstTextBlock(model, 0)
   if modelText != nil:
+    adoptFrom(label, modelText, [f.offRenderer])
     if f.getFont != nil and f.setFont != nil:
       let font = f.getFont(modelText)
       if font != nil: f.setFont(label, font)
@@ -198,6 +208,13 @@ method install*(f: SectionFeature): bool =
 
   f.offGridMain = fieldOffset(cp, "_gridMain")
   f.offDepProps = fieldOffset(ui, "<DependencyProperties>k__BackingField")
+  f.offRenderer = fieldOffset(ui, "Renderer")
+  f.offPressed = fieldOffset(f.buttonClass, "pressedImage")
+  f.offNotPressed = fieldOffset(f.buttonClass, "notPressedImage")
+  f.offMouseOver = fieldOffset(f.buttonClass, "mouseOverImage")
+  if f.offRenderer < 0:
+    logE("section: UIElement.Renderer not found, a fresh control would abort on draw")
+    return false
   if f.offGridMain < 0:
     logE("section: _gridMain not found")
     return false
