@@ -66,8 +66,10 @@ const
   TEST_BUTTON_WIDTH = 260.0
 
   ## Our page grid has no strip definitions, so every child stretches over the whole cell.
-  ## Pinning each to the top-left and offsetting by margin is what separates them.
-  ALIGN_TOP_LEFT = 1'i32
+  ## Pinning each to the top-left and offsetting by margin is what separates them. Xenko orders
+  ## these Left/Top, Center, Right/Bottom, Stretch - VD's own stretched controls read 3, which
+  ## is how the value was confirmed rather than guessed.
+  ALIGN_TOP_LEFT = 0'i32
   PAGE_INSET = 40.0
   LABEL_TOP = 40.0
   BUTTON_TOP = 110.0
@@ -76,6 +78,10 @@ const
   ## the padding theirs get from the serialised asset. Setting it explicitly is enough now the
   ## entry is in Panel.Children and therefore part of the measure pass.
   NAV_ENTRY_HEIGHT = 81.0
+
+  ## Nav entries span the 300-wide column; the chromed buttons in the bottom bar are narrower,
+  ## which is what tells the two apart when looking for a model to copy a button's look from.
+  NAV_ENTRY_WIDTH = 300.0
 
 
   ## Builds the entry and reports what is still unset, without attaching it. Inserting a control
@@ -108,6 +114,8 @@ type
     offMargin: int
     testButton: pointer ## the page's own button, pinned
     testWasPressed: bool
+    navEntries: pointer ## VD's nav collection, for the active highlight
+    activeColor, inactiveColor: uint32
     getVisibility: GetI32Fn
     containerSetObject: SetObj2Fn
     containerGetItem: GetObj2Fn
@@ -291,6 +299,16 @@ proc makeButton(model: pointer, caption: string, height: float): pointer =
   f.setContent(btn, label)
   btn
 
+## The odd one out: with a single tab active, the colour that is not the majority is the one VD
+## paints the selected entry with.
+proc activeTextColor(entries: pointer, count: int, inactive: uint32): uint32 =
+  for i in 0 ..< count:
+    let btn = childAt(entries, i)
+    if btn == nil: continue
+    let colour = textColorAt(firstTextBlock(btn, 0))
+    if colour != 0'u32 and colour != inactive: return colour
+  inactive
+
 proc buildEntry(model: pointer): pointer =
   makeButton(model, SECTION_NAME, NAV_ENTRY_HEIGHT)
 
@@ -339,6 +357,23 @@ proc placeInTabCell(grid, model: pointer) =
 
 ## Builds the tab's content: a grid carrying one placeholder label, styled from a real tab so
 ## it inherits the renderer and layout context a constructed control never receives.
+## VD's nav entries are flat text by design, so a button copied from one has no chrome. The
+## bottom bar's buttons carry the pressed and hover sprites that make a button look clickable.
+proc findChromedButton(root: pointer, depth: int, best: var pointer): void =
+  let f = sectionFeature
+  if root == nil or depth > NAV_SEARCH_DEPTH or best != nil: return
+  let kids = f.getVisualChildren(root)
+  let n = childCount(kids)
+  if n <= 0 or n > 512: return
+  for i in 0 ..< n:
+    let child = childAt(kids, i)
+    if child == nil: continue
+    if isButton(child) and readPtrAt(child, f.offNotPressed) != nil and
+       readF32At(child, 104) < NAV_ENTRY_WIDTH:
+      best = child
+      return
+    findChromedButton(child, depth + 1, best)
+
 proc buildContent(modelGrid, modelText, modelButton: pointer): pointer =
   let f = sectionFeature
   let grid = newInstance(f.gridClass)
@@ -388,6 +423,25 @@ proc anyVdTabVisible(self: pointer): bool =
 
 ## Shows our page and hides VD's, or the reverse. Exactly one tab is visible at a time, which is
 ## the same invariant VD maintains for its own.
+## VD paints the entry for the tab it believes is active and knows nothing about ours, so both
+## sides are driven here: exactly one entry stays lit, whoever owns the page.
+proc syncNavHighlight() =
+  let f = sectionFeature
+  if f.navEntries == nil or f.entry == nil or
+     f.activeColor == 0'u32 or f.inactiveColor == 0'u32: return
+  let count = childCount(f.navEntries)
+  if count <= 0 or count > MAX_TABS: return
+  for i in 0 ..< count:
+    let btn = childAt(f.navEntries, i)
+    if btn == nil: continue
+    let text = firstTextBlock(btn, 0)
+    if text == nil: continue
+    if btn == f.entry:
+      setTextColorAt(text, if f.showing: f.activeColor else: f.inactiveColor)
+    elif f.showing:
+      # Ours owns the page, so nothing of VD's should look selected.
+      setTextColorAt(text, f.inactiveColor)
+
 proc syncContent(self: pointer) =
   let f = sectionFeature
   if f.content == nil or f.setVisibility == nil or f.getVisibility == nil: return
@@ -445,6 +499,7 @@ proc pollEntry(self: pointer) {.nimcall.} =
     f.testWasPressed = false
 
   syncContent(self)
+  syncNavHighlight()
   if f.showing != f.wasShowing:
     f.wasShowing = f.showing
     f.redrawFrames = REDRAW_FRAMES
@@ -497,6 +552,9 @@ proc onPanelLoaded(self: pointer) {.nimcall.} =
   else:
     let inactive = inactiveTextColor(entries, childCount(entries))
     if inactive != 0'u32: setTextColorAt(firstTextBlock(entry, 0), inactive)
+    f.navEntries = entries
+    f.inactiveColor = inactive
+    f.activeColor = activeTextColor(entries, childCount(entries), inactive)
 
     add(entries, entry)
     f.entry = entry
@@ -508,7 +566,10 @@ proc onPanelLoaded(self: pointer) {.nimcall.} =
     let modelGrid = if firstTab == nil: nil else: readPtrAt(firstTab, f.offPanelGrid)
     if modelGrid != nil:
       let modelText = firstTextBlock(model, 0)
-      let content = buildContent(modelGrid, modelText, model)
+      var chromed: pointer = nil
+      findChromedButton(gridMain, 0, chromed)
+      let content = buildContent(modelGrid, modelText,
+                                 if chromed != nil: chromed else: model)
       if content == nil:
         logE("section: could not build the tab content")
       else:
