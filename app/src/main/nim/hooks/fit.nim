@@ -17,12 +17,17 @@ const
   UI_PANEL = "VirtualDesktop.Mobile.UIPanel, VirtualDesktop.Mobile"
   UI_ELEMENT = "Xenko.UI.UIElement, Xenko.UI"
   PANEL = "Xenko.UI.Panels.Panel, Xenko.UI"
+  TEXT_BLOCK = "Xenko.UI.Controls.TextBlock, Xenko.UI"
 
   CELL_HEIGHT = 936'f32 ## the content row of VD's root grid, measured live
   REPORT_ROWS = 4       ## rows described per column before going quiet
 
   ## A column is the settings list; the overlay grids hold a single explicitly sized child.
   MIN_COLUMN_ROWS = 2
+
+  ## Below this a description fits its row whatever the language, so leave VD's choice alone.
+  WRAP_MIN_CHARS = 28
+  WALK_DEPTH = 6
 
   ## Thickness is six floats: left, top, right, bottom, front, back.
   M_LEFT = 0
@@ -33,6 +38,8 @@ type
   VoidRetFn = proc(self: pointer) {.cdecl, gcsafe.}
   GetObjFn = proc(self: pointer): pointer {.cdecl, gcsafe.}
   GetF32Fn = proc(self: pointer): cfloat {.cdecl, gcsafe.}
+  GetBoolFn = proc(self: pointer): bool {.cdecl, gcsafe.}
+  SetBoolFn = proc(self: pointer, v: bool) {.cdecl, gcsafe.}
 
   FitFeature* = ref object of Feature
     loadContent: Hook
@@ -41,8 +48,14 @@ type
 
     offSettingsTab, offPanelGrid, offMargin: int
     getChildren: GetObjFn
+    getVisualChildren: GetObjFn
     getHeight: GetF32Fn
+    getText: GetObjFn
+    getWrap: GetBoolFn
+    setWrap: SetBoolFn
+    textBlockClass: MonoClass
     applied: bool
+    wrapped: int
 
 var fitFeature* = FitFeature(name: "settings fit")
 
@@ -103,6 +116,41 @@ proc padEdges(col: pointer): float32 =
   setMarginAt(col, M_LEFT, want)
   setMarginAt(col, M_TOP, want)
 
+proc isTextBlock(o: pointer): bool =
+  let target = fitFeature.textBlockClass
+  if o == nil or target == nil or pClassGetParent == nil: return false
+  var k = classOf(o)
+  for _ in 0 ..< 8:
+    if k == nil: break
+    if k == target: return true
+    k = pClassGetParent(k)
+  false
+
+proc textLength(o: pointer): int =
+  let f = fitFeature
+  if f.getText == nil: return 0
+  let s = f.getText(o)
+  if s == nil: return 0
+  monoStrLen(s)
+
+## VD sets WrapText on some descriptions and not others. The ones without it render as a single
+## long line that runs over the next control - which English never exposed, because its strings
+## were short enough either way. Turning it on here, before the one measure, lets the row size
+## itself for the wrapped text instead of a translation having to be short enough to fit.
+proc enableWrap(el: pointer, depth: int) =
+  let f = fitFeature
+  if el == nil or depth > WALK_DEPTH: return
+  if isTextBlock(el) and f.getWrap != nil and f.setWrap != nil:
+    if textLength(el) >= WRAP_MIN_CHARS and not f.getWrap(el):
+      f.setWrap(el, true)
+      inc f.wrapped
+  if f.getVisualChildren == nil: return
+  let kids = f.getVisualChildren(el)
+  let n = childCount(kids)
+  if n <= 0 or n > 512: return
+  for i in 0 ..< n:
+    enableWrap(childAt(kids, i), depth + 1)
+
 proc hookLoadContent(self: pointer) {.cdecl.} =
   let f = fitFeature
   let orig = origAs[VoidRetFn](f.loadContent)
@@ -142,6 +190,7 @@ proc hookLoadContent(self: pointer) {.cdecl.} =
         if row != nil:
           logI("fit:     row[" & $j & "] " & describe(row))
 
+      enableWrap(col, 0)
       let fromBottom = reclaim(col)
       let fromTop = padEdges(col)
       reclaimed += fromBottom + fromTop
@@ -150,7 +199,8 @@ proc hookLoadContent(self: pointer) {.cdecl.} =
            formatFloat(fromTop, ffDecimal, 0) & "px top, now " & describe(col))
 
     logI("fit: reclaimed " & formatFloat(reclaimed, ffDecimal, 0) &
-         "px against a " & formatFloat(CELL_HEIGHT, ffDecimal, 0) & "px cell")
+         "px against a " & formatFloat(CELL_HEIGHT, ffDecimal, 0) & "px cell, wrapped " &
+         $f.wrapped & " label(s)")
 
 fitFeature.loadContent = newHook(CONTROL_PANEL, "LoadContent", 0, cast[pointer](hookLoadContent))
 
@@ -176,7 +226,15 @@ method install*(f: FitFeature): bool =
     return false
 
   f.getChildren = cast[GetObjFn](methodAddr(panelBase, "get_Children", 0))
+  f.getVisualChildren = cast[GetObjFn](methodAddr(ui, "get_VisualChildren", 0))
   f.getHeight = cast[GetF32Fn](methodAddr(ui, "get_Height", 0))
+  f.textBlockClass = getClass(TEXT_BLOCK)
+  if f.textBlockClass != nil:
+    f.getText = cast[GetObjFn](methodAddr(f.textBlockClass, "get_Text", 0))
+    f.getWrap = cast[GetBoolFn](methodAddr(f.textBlockClass, "get_WrapText", 0))
+    f.setWrap = cast[SetBoolFn](methodAddr(f.textBlockClass, "set_WrapText", 1))
+  if f.setWrap == nil or f.getWrap == nil or f.getText == nil:
+    logE("fit: TextBlock wrap members missing, long labels will still overflow")
   if f.getChildren == nil:
     logE("fit: Panel::get_Children not resolvable")
     return false
