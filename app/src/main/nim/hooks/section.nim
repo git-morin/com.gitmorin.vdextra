@@ -38,7 +38,7 @@ type
   SectionFeature* = ref object of Feature
     enabled*: Atomic[bool]
 
-    offGridMain, offRenderer: int
+    offGridMain, offRenderer, offFont: int
     offPressed, offNotPressed, offMouseOver: int
     buttonClass, textClass: MonoClass
     getVisualChildren: GetObjFn
@@ -46,8 +46,6 @@ type
     setText: SetStrFn
     setTextSize: SetF32Fn
     getTextSize: GetF32Fn
-    setFont: SetObjFn
-    getFont: GetObjFn
     applied: bool
 
 var sectionFeature* = SectionFeature(name: "vdextra section")
@@ -148,12 +146,12 @@ proc buildEntry(model: pointer): pointer =
   f.setText(label, name)
 
   # Match the existing entries so the new one is not styled differently.
+  # The font is copied as a field rather than through set_Font: that setter is hooked by the
+  # text feature, which substitutes fonts for glyph coverage and would discard this one. Without
+  # a font DefaultTextBlockRenderer.RenderColor dereferences null and the game thread aborts.
   let modelText = firstTextBlock(model, 0)
   if modelText != nil:
-    adoptFrom(label, modelText, [f.offRenderer])
-    if f.getFont != nil and f.setFont != nil:
-      let font = f.getFont(modelText)
-      if font != nil: f.setFont(label, font)
+    adoptFrom(label, modelText, [f.offRenderer, f.offFont])
     if f.getTextSize != nil and f.setTextSize != nil:
       f.setTextSize(label, f.getTextSize(modelText))
   f.setContent(btn, label)
@@ -211,11 +209,12 @@ method install*(f: SectionFeature): bool =
 
   f.offGridMain = fieldOffset(cp, "_gridMain")
   f.offRenderer = fieldOffset(ui, "Renderer")
+  f.offFont = fieldOffset(f.textClass, "font")
   f.offPressed = fieldOffset(f.buttonClass, "pressedImage")
   f.offNotPressed = fieldOffset(f.buttonClass, "notPressedImage")
   f.offMouseOver = fieldOffset(f.buttonClass, "mouseOverImage")
-  if f.offRenderer < 0:
-    logE("section: UIElement.Renderer not found, a fresh control would abort on draw")
+  if f.offRenderer < 0 or f.offFont < 0:
+    logE("section: Renderer/font fields not found; a fresh control would abort on draw")
     return false
   if f.offGridMain < 0:
     logE("section: _gridMain not found")
@@ -226,8 +225,6 @@ method install*(f: SectionFeature): bool =
   f.setText = cast[SetStrFn](methodAddr(f.textClass, "set_Text", 1))
   f.setTextSize = cast[SetF32Fn](methodAddr(f.textClass, "set_TextSize", 1))
   f.getTextSize = cast[GetF32Fn](methodAddr(f.textClass, "get_TextSize", 0))
-  f.setFont = cast[SetObjFn](methodAddr(f.textClass, "set_Font", 1))
-  f.getFont = cast[GetObjFn](methodAddr(f.textClass, "get_Font", 0))
   if f.getVisualChildren == nil or f.setContent == nil or f.setText == nil:
     logE("section: a required member is missing")
     return false
