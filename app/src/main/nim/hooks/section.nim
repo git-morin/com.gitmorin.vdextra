@@ -28,6 +28,12 @@ const
   MIN_NAV_ENTRIES = 4
   NAV_SEARCH_DEPTH = 8
 
+  ## What VD's measure pass settles on for a nav entry: the column is a fixed 300 wide and the
+  ## entries below the first are 81 tall. Hard-coded because our entry is built before any
+  ## measure has run, so no laid-out sibling exists to copy a size from yet.
+  NAV_ENTRY_WIDTH = 300.0
+  NAV_ENTRY_HEIGHT = 81.0
+
   ## Builds the entry and reports what is still unset, without attaching it. Inserting a control
   ## that is missing something aborts the game thread, and the stack only ever names the first
   ## thing that was missing - this names them all in one run.
@@ -70,7 +76,6 @@ const
   LIST_ITEMS = 16
   LIST_SIZE = 24
   ARRAY_DATA = 32
-  F_RENDER = 104 ## RenderSize: the size VD's layout settled on for an element
 
 proc childCount(coll: pointer): int =
   if coll == nil: 0
@@ -176,12 +181,12 @@ proc buildEntry(model: pointer): pointer =
   # release rather than press, which get_IsPressed never shows.
   if f.setClickMode != nil: f.setClickMode(btn, 0'i32)
 
-  # The size is set explicitly rather than measured. VD measures this layout once and ignores
-  # InvalidateMeasure afterwards, so an entry added during LoadContent stays 0x0 - drawn, but
-  # occupying no space and offering no area to hit. The model's rendered size is the target.
+  # VD's own entries carry W=NaN and are sized by the measure pass. Ours arrives after that
+  # pass, so it is given the dimensions the pass would have produced; without them it stays
+  # 0x0 - drawn, but occupying no space and offering no area to hit.
   if f.setWidth != nil and f.setHeight != nil:
-    f.setWidth(btn, cfloat(readF32At(model, F_RENDER)))
-    f.setHeight(btn, cfloat(readF32At(model, F_RENDER + 4)))
+    f.setWidth(btn, cfloat(NAV_ENTRY_WIDTH))
+    f.setHeight(btn, cfloat(NAV_ENTRY_HEIGHT))
 
   f.setContent(btn, label)
   btn
