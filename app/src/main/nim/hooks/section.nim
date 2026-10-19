@@ -45,6 +45,11 @@ const
   ## A sanity bound on the tab array before it is walked.
   MAX_TABS = 64
 
+  ## How long to keep asking for a full repaint after the page is shown or hidden. One frame
+  ## leaves the previous tab's pixels on screen: VD clears its dirty regions over several
+  ## frames, and a visibility flip made behind its back is not one of them.
+  REDRAW_FRAMES = 15
+
   ## The cell every tab grid occupies in VD's root layout.
   TAB_ROW = 1
   TAB_COLUMN = 1
@@ -92,6 +97,7 @@ type
     offForceDrawAll: int
     content: pointer ## our tab's grid, pinned
     showing, wasShowing: bool
+    redrawFrames: int
     entry: pointer   ## our nav button, pinned
     wasPressed: bool
 
@@ -351,12 +357,14 @@ proc syncContent(self: pointer) =
       f.setVisibility(grid, VISIBILITY_HIDDEN)
   f.setVisibility(f.content, VISIBILITY_VISIBLE)
 
-proc requestRedraw(self: pointer) =
-  ## VD repaints only the regions it believes changed, so a visibility flip made behind its back
-  ## leaves the previous tab's pixels on screen. This is the same flag the settings scroller
-  ## needed to make its movement show up.
+## VD repaints only the regions it believes changed, so a visibility flip made behind its back
+## leaves the previous tab's pixels on screen. This is the same flag the settings scroller
+## needed, held for several frames because one is not enough to clear the old page.
+proc pumpRedraw(self: pointer) =
   let f = sectionFeature
-  if f.offForceDrawAll >= 0: writeBoolAt(self, f.offForceDrawAll, true)
+  if f.redrawFrames <= 0 or f.offForceDrawAll < 0: return
+  writeBoolAt(self, f.offForceDrawAll, true)
+  dec f.redrawFrames
 
 ## The press is read from our own button each frame rather than hooked. Detouring OnClick
 ## reached every button in the panel - it is inherited from ButtonBase - and a bad trampoline
@@ -379,8 +387,9 @@ proc pollEntry(self: pointer) {.nimcall.} =
 
   syncContent(self)
   if f.showing != f.wasShowing:
-    requestRedraw(self)
     f.wasShowing = f.showing
+    f.redrawFrames = REDRAW_FRAMES
+  pumpRedraw(self)
 
 proc onPanelLoaded(self: pointer) {.nimcall.} =
   let f = sectionFeature
