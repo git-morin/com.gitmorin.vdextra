@@ -37,7 +37,6 @@ const
 type
   GetBoolFn = proc(self: pointer): bool {.cdecl, gcsafe.}
   SetI32Fn = proc(self: pointer, v: int32) {.cdecl, gcsafe.}
-  VoidFn1 = proc(self: pointer) {.cdecl, gcsafe.}
   GetObjFn = proc(self: pointer): pointer {.cdecl, gcsafe.}
   SetObjFn = proc(self: pointer, v: pointer) {.cdecl, gcsafe.}
   AddFn = proc(self: pointer, item: pointer) {.cdecl, gcsafe.}
@@ -49,7 +48,7 @@ type
     enabled*: Atomic[bool]
     getPressed: GetBoolFn
     setClickMode: SetI32Fn
-    invalidateMeasure: VoidFn1
+    setWidth, setHeight: SetF32Fn
     entry: pointer ## our nav button, pinned
     wasPressed: bool
 
@@ -71,6 +70,7 @@ const
   LIST_ITEMS = 16
   LIST_SIZE = 24
   ARRAY_DATA = 32
+  F_RENDER = 104 ## RenderSize: the size VD's layout settled on for an element
 
 proc childCount(coll: pointer): int =
   if coll == nil: 0
@@ -176,6 +176,13 @@ proc buildEntry(model: pointer): pointer =
   # release rather than press, which get_IsPressed never shows.
   if f.setClickMode != nil: f.setClickMode(btn, 0'i32)
 
+  # The size is set explicitly rather than measured. VD measures this layout once and ignores
+  # InvalidateMeasure afterwards, so an entry added during LoadContent stays 0x0 - drawn, but
+  # occupying no space and offering no area to hit. The model's rendered size is the target.
+  if f.setWidth != nil and f.setHeight != nil:
+    f.setWidth(btn, cfloat(readF32At(model, F_RENDER)))
+    f.setHeight(btn, cfloat(readF32At(model, F_RENDER + 4)))
+
   f.setContent(btn, label)
   btn
 
@@ -254,17 +261,6 @@ proc onPanelLoaded(self: pointer) {.nimcall.} =
     add(entries, entry)
     f.entry = entry
 
-    # The entry is added at the end of LoadContent, after the pass that sized the nav, so it
-    # measures 0x0 - invisible to layout and with no area to hit. Invalidating the stack and
-    # its ancestors puts it into the next measure instead.
-    if f.invalidateMeasure != nil:
-      f.invalidateMeasure(entry)
-      f.invalidateMeasure(stack)
-      var up = stack
-      for _ in 0 ..< NAV_SEARCH_DEPTH:
-        up = readPtrAt(up, f.offParent)
-        if up == nil: break
-        f.invalidateMeasure(up)
     logI("section: added " & SECTION_NAME & " to a " & $stackCount & "-entry nav")
 
 method install*(f: SectionFeature): bool =
@@ -312,7 +308,11 @@ method install*(f: SectionFeature): bool =
     return false
   f.getPressed = cast[GetBoolFn](methodAddr(buttonBase, "get_IsPressed", 0))
   f.setClickMode = cast[SetI32Fn](methodAddr(buttonBase, "set_ClickMode", 1))
-  f.invalidateMeasure = cast[VoidFn1](methodAddr(ui, "InvalidateMeasure", 0))
+  f.setWidth = cast[SetF32Fn](methodAddr(ui, "set_Width", 1))
+  f.setHeight = cast[SetF32Fn](methodAddr(ui, "set_Height", 1))
+  if f.setWidth == nil or f.setHeight == nil:
+    logE("section: set_Width/set_Height missing, the entry would have no size")
+    return false
   if f.getPressed == nil:
     logE("section: ButtonBase::get_IsPressed not resolvable")
     return false

@@ -366,6 +366,10 @@ proc fieldOffset*(c: MonoClass, name: string): int =
 proc readPtrAt*(o: pointer, off: int): pointer =
   if o == nil or off < 0: nil else: cast[ptr pointer](cast[uint64](o) + uint64(off))[]
 
+proc readF32At*(o: pointer, off: int): float32 =
+  if o == nil or off < 0: 0.0
+  else: cast[ptr float32](cast[uint64](o) + uint64(off))[]
+
 proc writePtrAt*(o: pointer, off: int, v: pointer) =
   if o == nil or off < 0: return
   cast[ptr pointer](cast[uint64](o) + uint64(off))[] = v
