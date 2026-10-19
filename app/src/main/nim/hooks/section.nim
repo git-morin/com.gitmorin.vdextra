@@ -29,6 +29,10 @@ const
   MIN_NAV_ENTRIES = 4
   NAV_SEARCH_DEPTH = 8
 
+  ## VD paints the active entry white and the rest grey. A fresh TextBlock starts near-white,
+  ## so ours looked permanently selected until it was given the inactive colour.
+  TEXT_COLOR_OFFSET = 608
+
   ## VD's entries measure 81 tall; ours measures to its text at 41, since it carries none of
   ## the padding theirs get from the serialised asset. Setting it explicitly is enough now the
   ## entry is in Panel.Children and therefore part of the measure pass.
@@ -151,6 +155,41 @@ proc adoptFrom(fresh, model: pointer, offsets: openArray[int]) =
     let v = readPtrAt(model, off)
     if v != nil: writePtrAt(fresh, off, v)
 
+proc textColorAt(text: pointer): uint32 =
+  if text == nil: 0'u32
+  else: cast[ptr uint32](cast[uint64](text) + uint64(TEXT_COLOR_OFFSET))[]
+
+proc setTextColorAt(text: pointer, colour: uint32) =
+  if text == nil: return
+  cast[ptr uint32](cast[uint64](text) + uint64(TEXT_COLOR_OFFSET))[] = colour
+
+## The inactive colour is whatever most entries share: only one tab is active at a time, so the
+## majority is the inactive shade. Reading it beats hard-coding grey, which would be wrong the
+## moment VD restyles its panel.
+proc inactiveTextColor(entries: pointer, count: int): uint32 =
+  var tally: array[8, tuple[colour: uint32, hits: int]]
+  var used = 0
+  for i in 0 ..< count:
+    let btn = childAt(entries, i)
+    if btn == nil: continue
+    let colour = textColorAt(firstTextBlock(btn, 0))
+    if colour == 0'u32: continue
+    var seen = false
+    for j in 0 ..< used:
+      if tally[j].colour == colour:
+        inc tally[j].hits
+        seen = true
+        break
+    if not seen and used < tally.len:
+      tally[used] = (colour, 1)
+      inc used
+
+  var bestHits = 0
+  for j in 0 ..< used:
+    if tally[j].hits > bestHits:
+      bestHits = tally[j].hits
+      result = tally[j].colour
+
 proc buildEntry(model: pointer): pointer =
   let f = sectionFeature
   let btn = newInstance(f.buttonClass)
@@ -263,9 +302,7 @@ proc onPanelLoaded(self: pointer) {.nimcall.} =
          $stackCount & "-entry nav")
   else:
     let inactive = inactiveTextColor(entries, childCount(entries))
-    let entryText = firstTextBlock(entry, 0)
-    if inactive != 0 and entryText != nil:
-      cast[ptr uint32](cast[uint64](entryText) + uint64(TEXT_COLOR_OFFSET))[] = inactive
+    if inactive != 0'u32: setTextColorAt(firstTextBlock(entry, 0), inactive)
 
     add(entries, entry)
     f.entry = entry
