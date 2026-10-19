@@ -30,7 +30,7 @@ const
   ## Builds the entry and reports what is still unset, without attaching it. Inserting a control
   ## that is missing something aborts the game thread, and the stack only ever names the first
   ## thing that was missing - this names them all in one run.
-  DRY_RUN = true
+  DRY_RUN = false
   REPORT_FIELDS = 24
 
 type
@@ -44,7 +44,7 @@ type
   SectionFeature* = ref object of Feature
     enabled*: Atomic[bool]
 
-    offGridMain, offRenderer, offFont: int
+    offGridMain, offRenderer, offFont, offLayoutCtx: int
     offPressed, offNotPressed, offMouseOver: int
     buttonClass, textClass: MonoClass
     getVisualChildren: GetObjFn
@@ -145,7 +145,10 @@ proc buildEntry(model: pointer): pointer =
   if label == nil: return nil
   discard pin(label)
 
-  adoptFrom(btn, model, [f.offRenderer, f.offPressed, f.offNotPressed, f.offMouseOver])
+  # layoutingContext is what RenderColor reaches through; it is null on a fresh control and
+  # only ever assigned during VD's own layout pass, so the model's is adopted with the rest.
+  adoptFrom(btn, model, [f.offRenderer, f.offPressed, f.offNotPressed, f.offMouseOver,
+                         f.offLayoutCtx])
 
   let name = makeMono(SECTION_NAME)
   if name == nil: return nil
@@ -157,7 +160,7 @@ proc buildEntry(model: pointer): pointer =
   # a font DefaultTextBlockRenderer.RenderColor dereferences null and the game thread aborts.
   let modelText = firstTextBlock(model, 0)
   if modelText != nil:
-    adoptFrom(label, modelText, [f.offRenderer, f.offFont])
+    adoptFrom(label, modelText, [f.offRenderer, f.offFont, f.offLayoutCtx])
     if f.getTextSize != nil and f.setTextSize != nil:
       f.setTextSize(label, f.getTextSize(modelText))
   f.setContent(btn, label)
@@ -245,6 +248,7 @@ method install*(f: SectionFeature): bool =
   f.offGridMain = fieldOffset(cp, "_gridMain")
   f.offRenderer = fieldOffset(ui, "Renderer")
   f.offFont = fieldOffset(f.textClass, "font")
+  f.offLayoutCtx = fieldOffset(ui, "layoutingContext")
   f.offPressed = fieldOffset(f.buttonClass, "pressedImage")
   f.offNotPressed = fieldOffset(f.buttonClass, "notPressedImage")
   f.offMouseOver = fieldOffset(f.buttonClass, "mouseOverImage")
