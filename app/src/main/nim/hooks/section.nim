@@ -15,6 +15,7 @@ import ../vdlog, ../mono, hook, loadcontent
 const
   UI_ELEMENT = "Xenko.UI.UIElement, Xenko.UI"
   BUTTON = "Xenko.UI.Controls.Button, Xenko.UI"
+  BUTTON_BASE = "Xenko.UI.Controls.ButtonBase, Xenko.UI"
   TEXT_BLOCK = "Xenko.UI.Controls.TextBlock, Xenko.UI"
   CONTENT_CONTROL = "Xenko.UI.Controls.ContentControl, Xenko.UI"
 
@@ -34,6 +35,7 @@ const
   REPORT_FIELDS = 24
 
 type
+  ClickFn = proc(self: pointer, args: pointer) {.cdecl, gcsafe.}
   GetObjFn = proc(self: pointer): pointer {.cdecl, gcsafe.}
   SetObjFn = proc(self: pointer, v: pointer) {.cdecl, gcsafe.}
   AddFn = proc(self: pointer, item: pointer) {.cdecl, gcsafe.}
@@ -43,6 +45,8 @@ type
 
   SectionFeature* = ref object of Feature
     enabled*: Atomic[bool]
+    onClick: Hook
+    entry: pointer ## our nav button, pinned; every other button falls through untouched
 
     offGridMain, offRenderer, offFont, offLayoutCtx: int
     offPressed, offNotPressed, offMouseOver: int
@@ -185,6 +189,18 @@ proc reportGaps(fresh, model: pointer, label: string) =
         inc shown
     cls = pClassGetParent(cls)
 
+## OnClick is an instance method on ButtonBase, so one hook covers every button in the panel
+## and the filter is identity: anything that is not our entry goes straight to the original.
+## This is how a click is caught without creating a managed delegate from native code.
+proc hookOnClick(self: pointer, args: pointer) {.cdecl.} =
+  let f = sectionFeature
+  if self != nil and self == f.entry:
+    guard "VDExtra nav click":
+      logI("section: " & SECTION_NAME & " clicked")
+    return
+  let orig = origAs[ClickFn](f.onClick)
+  if orig != nil: orig(self, args)
+
 proc onPanelLoaded(self: pointer) {.nimcall.} =
   let f = sectionFeature
   if not f.enabled.load() or f.applied or self == nil: return
@@ -228,7 +244,10 @@ proc onPanelLoaded(self: pointer) {.nimcall.} =
          $stackCount & "-entry nav")
   else:
     add(entries, entry)
+    f.entry = entry
     logI("section: added " & SECTION_NAME & " to a " & $stackCount & "-entry nav")
+
+sectionFeature.onClick = newHook(BUTTON_BASE, "OnClick", 1, cast[pointer](hookOnClick))
 
 method install*(f: SectionFeature): bool =
   if not f.enabled.load():
@@ -266,6 +285,14 @@ method install*(f: SectionFeature): bool =
   f.getTextSize = cast[GetF32Fn](methodAddr(f.textClass, "get_TextSize", 0))
   if f.getVisualChildren == nil or f.setContent == nil or f.setText == nil:
     logE("section: a required member is missing")
+    return false
+
+  let buttonBase = getClass(BUTTON_BASE)
+  if buttonBase == nil:
+    logE("section: ButtonBase not found, the entry would not be clickable")
+    return false
+  if not f.onClick.install(buttonBase):
+    logE("section: ButtonBase::OnClick hook failed")
     return false
 
   if not installLoadContent(): return false
