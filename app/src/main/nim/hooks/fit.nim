@@ -1,7 +1,8 @@
 import std/[atomics, strutils]
 import ../vdlog, ../mono, hook
 
-## Makes VD's settings page fit the space it is given, so its last rows stop being unreachable.
+## Makes VD's control panel pages fit the space they are given, so their last rows stop being
+## unreachable and their descriptions stop landing on the control below.
 ##
 ## Translated strings make the two settings columns 956 tall in a 936 cell. Correcting that
 ## after the fact is impossible: VD measures this layout exactly once and never again - a margin
@@ -19,8 +20,6 @@ const
   PANEL = "Xenko.UI.Panels.Panel, Xenko.UI"
   TEXT_BLOCK = "Xenko.UI.Controls.TextBlock, Xenko.UI"
 
-  CELL_HEIGHT = 936'f32 ## the content row of VD's root grid, measured live
-  REPORT_ROWS = 4       ## rows described per column before going quiet
 
   ## A column is the settings list; the overlay grids hold a single explicitly sized child.
   MIN_COLUMN_ROWS = 2
@@ -44,7 +43,6 @@ const
 type
   VoidRetFn = proc(self: pointer) {.cdecl, gcsafe.}
   GetObjFn = proc(self: pointer): pointer {.cdecl, gcsafe.}
-  GetF32Fn = proc(self: pointer): cfloat {.cdecl, gcsafe.}
   GetBoolFn = proc(self: pointer): bool {.cdecl, gcsafe.}
   SetBoolFn = proc(self: pointer, v: bool) {.cdecl, gcsafe.}
 
@@ -53,10 +51,9 @@ type
     enabled*: Atomic[bool]
     pad*: Atomic[float32] ## smallest left and top margin a column may end up with
 
-    offSettingsTab, offPanelGrid, offMargin: int
+    offTabPanels, offPanelGrid, offMargin: int
     getChildren: GetObjFn
     getVisualChildren: GetObjFn
-    getHeight: GetF32Fn
     getText: GetObjFn
     getWrap: GetBoolFn
     setWrap: SetBoolFn
@@ -92,17 +89,6 @@ proc setMarginAt(o: pointer, edge: int, v: float32) =
   let off = fitFeature.offMargin
   if o == nil or off < 0: return
   cast[ptr float32](cast[uint64](o) + uint64(off + edge * 4))[] = v
-
-proc heightOf(o: pointer): string =
-  let f = fitFeature
-  if f.getHeight == nil or o == nil: return "?"
-  let h = float32(f.getHeight(o))
-  if h != h: "auto" else: formatFloat(h, ffDecimal, 0)
-
-proc describe(o: pointer): string =
-  "H=" & heightOf(o) & " margin[l=" & formatFloat(marginAt(o, M_LEFT), ffDecimal, 0) &
-    " t=" & formatFloat(marginAt(o, M_TOP), ffDecimal, 0) &
-    " b=" & formatFloat(marginAt(o, M_BOTTOM), ffDecimal, 0) & "]"
 
 ## Spends the column's bottom margin, which is dead space below the list. Row spacing is never
 ## touched: taking a slice off every row made the page look cramped and bought little.
@@ -175,6 +161,32 @@ proc enableWrap(el: pointer, depth: int) =
   for i in 0 ..< n:
     enableWrap(childAt(kids, i), depth + 1)
 
+## Every page gets the same treatment: wrap the descriptions VD left unwrapped, then pay for the
+## height that costs out of the column's own dead space and its row gaps. Pages that already
+## scroll are included - they simply end up needing less scrolling.
+proc fitPage(grid: pointer, label: string) =
+  let f = fitFeature
+  let cols = f.getChildren(grid)
+  let n = childCount(cols)
+  if n <= 0 or n > 512: return
+
+  var reclaimed = 0'f32
+  var touched = 0
+  for i in 0 ..< n:
+    let col = childAt(cols, i)
+    if col == nil: continue
+    let rows = childCount(f.getChildren(col))
+
+    # The overlay grids are a single explicitly sized child and are not what gets cut off.
+    if rows < MIN_COLUMN_ROWS: continue
+
+    enableWrap(col, 0)
+    reclaimed += reclaim(col) + padEdges(col) + trimRows(col)
+    inc touched
+
+  logI("fit: " & label & " " & $touched & " column(s), reclaimed " &
+       formatFloat(reclaimed, ffDecimal, 0) & "px")
+
 proc hookLoadContent(self: pointer) {.cdecl.} =
   let f = fitFeature
   let orig = origAs[VoidRetFn](f.loadContent)
@@ -182,51 +194,25 @@ proc hookLoadContent(self: pointer) {.cdecl.} =
 
   guard "ControlPanel.LoadContent":
     if not f.enabled.load() or f.applied or self == nil: return
-    let tab = readPtrAt(self, f.offSettingsTab)
-    if tab == nil:
-      logI("fit: settings tab not built yet at LoadContent exit")
-      return
-    let grid = readPtrAt(tab, f.offPanelGrid)
-    if grid == nil:
-      logI("fit: settings grid still null")
+    let tabs = readPtrAt(self, f.offTabPanels)
+    if tabs == nil:
+      logI("fit: no tab panels at LoadContent exit")
       return
     f.applied = true
 
-    let cols = f.getChildren(grid)
-    let n = childCount(cols)
-    logI("fit: settings grid " & describe(grid) & " with " & $n & " child(ren)")
-    if n <= 0 or n > 512: return
+    let count = childCount(tabs)
+    if count <= 0 or count > 64:
+      logE("fit: implausible tab count " & $count)
+      return
 
-    var reclaimed = 0'f32
-    for i in 0 ..< n:
-      let col = childAt(cols, i)
-      if col == nil: continue
-      let kids = f.getChildren(col)
-      let rows = childCount(kids)
+    for i in 0 ..< count:
+      let tab = childAt(tabs, i)
+      if tab == nil: continue
+      let grid = readPtrAt(tab, f.offPanelGrid)
+      if grid == nil: continue
+      fitPage(grid, className(classOf(tab)))
 
-      # The overlay grids are a single explicitly sized child and are not what gets cut off.
-      if rows < MIN_COLUMN_ROWS:
-        logI("fit:   col[" & $i & "] skipped, " & $rows & " row(s)")
-        continue
-
-      for j in 0 ..< min(rows, REPORT_ROWS):
-        let row = childAt(kids, j)
-        if row != nil:
-          logI("fit:     row[" & $j & "] " & describe(row))
-
-      enableWrap(col, 0)
-      let fromBottom = reclaim(col)
-      let fromTop = padEdges(col)
-      let fromRows = trimRows(col)
-      reclaimed += fromBottom + fromTop + fromRows
-      logI("fit:   col[" & $i & "] rows=" & $rows & " reclaimed " &
-           formatFloat(fromBottom, ffDecimal, 0) & "px bottom + " &
-           formatFloat(fromTop, ffDecimal, 0) & "px top + " &
-           formatFloat(fromRows, ffDecimal, 0) & "px rows, now " & describe(col))
-
-    logI("fit: reclaimed " & formatFloat(reclaimed, ffDecimal, 0) &
-         "px against a " & formatFloat(CELL_HEIGHT, ffDecimal, 0) & "px cell, wrapped " &
-         $f.wrapped & " label(s)")
+    logI("fit: " & $count & " tab(s) done, wrapped " & $f.wrapped & " label(s)")
 
 fitFeature.loadContent = newHook(CONTROL_PANEL, "LoadContent", 0, cast[pointer](hookLoadContent))
 
@@ -243,17 +229,16 @@ method install*(f: FitFeature): bool =
     logE("fit: a required class is missing")
     return false
 
-  f.offSettingsTab = fieldOffset(cp, "_settingsTab")
+  f.offTabPanels = fieldOffset(cp, "_tabPanels")
   f.offPanelGrid = fieldOffset(panel, "<Grid>k__BackingField")
   f.offMargin = fieldOffset(ui, "MarginInternal")
-  if f.offSettingsTab < 0 or f.offPanelGrid < 0 or f.offMargin < 0:
-    logE("fit: field layout not as expected (tab=" & $f.offSettingsTab &
+  if f.offTabPanels < 0 or f.offPanelGrid < 0 or f.offMargin < 0:
+    logE("fit: field layout not as expected (tabs=" & $f.offTabPanels &
          " grid=" & $f.offPanelGrid & " margin=" & $f.offMargin & ")")
     return false
 
   f.getChildren = cast[GetObjFn](methodAddr(panelBase, "get_Children", 0))
   f.getVisualChildren = cast[GetObjFn](methodAddr(ui, "get_VisualChildren", 0))
-  f.getHeight = cast[GetF32Fn](methodAddr(ui, "get_Height", 0))
   f.textBlockClass = getClass(TEXT_BLOCK)
   if f.textBlockClass != nil:
     f.getText = cast[GetObjFn](methodAddr(f.textBlockClass, "get_Text", 0))
