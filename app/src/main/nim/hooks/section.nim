@@ -49,7 +49,10 @@ type
 
 var sectionFeature* = SectionFeature(name: "vdextra section")
 
-sectionFeature.enabled.store(true)
+## Off while the last piece is missing. Adding the entry and adopting the renderer and sprites
+## both work; the draw still throws KeyNotFoundException keyed on the Button, because VD holds a
+## per-element map built while it constructs the UI and our control was never registered in it.
+sectionFeature.enabled.store(false)
 
 const
   LIST_ITEMS = 16
