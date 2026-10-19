@@ -1,5 +1,5 @@
 import std/atomics
-import ../vdlog, ../mono, hook, loadcontent
+import ../vdlog, ../mono, hook, loadcontent, panelupdate
 
 ## Feasibility spike: add a VDExtra entry to the control panel's left navigation.
 ##
@@ -35,7 +35,7 @@ const
   REPORT_FIELDS = 24
 
 type
-  ClickFn = proc(self: pointer, args: pointer) {.cdecl, gcsafe.}
+  GetBoolFn = proc(self: pointer): bool {.cdecl, gcsafe.}
   GetObjFn = proc(self: pointer): pointer {.cdecl, gcsafe.}
   SetObjFn = proc(self: pointer, v: pointer) {.cdecl, gcsafe.}
   AddFn = proc(self: pointer, item: pointer) {.cdecl, gcsafe.}
@@ -45,8 +45,9 @@ type
 
   SectionFeature* = ref object of Feature
     enabled*: Atomic[bool]
-    onClick: Hook
-    entry: pointer ## our nav button, pinned; every other button falls through untouched
+    getPressed: GetBoolFn
+    entry: pointer ## our nav button, pinned
+    wasPressed: bool
 
     offGridMain, offRenderer, offFont, offLayoutCtx: int
     offPressed, offNotPressed, offMouseOver: int
@@ -60,10 +61,7 @@ type
 
 var sectionFeature* = SectionFeature(name: "vdextra section")
 
-## Off: the entry renders and sits last in the nav, but hooking ButtonBase.OnClick takes down
-## every button in the panel with SIGILL in a JIT trampoline. OnClick is virtual and shared by
-## all buttons, so a bad detour there breaks VD's own navigation, not just ours.
-sectionFeature.enabled.store(false)
+sectionFeature.enabled.store(true)
 
 const
   LIST_ITEMS = 16
@@ -192,17 +190,16 @@ proc reportGaps(fresh, model: pointer, label: string) =
         inc shown
     cls = pClassGetParent(cls)
 
-## OnClick is an instance method on ButtonBase, so one hook covers every button in the panel
-## and the filter is identity: anything that is not our entry goes straight to the original.
-## This is how a click is caught without creating a managed delegate from native code.
-proc hookOnClick(self: pointer, args: pointer) {.cdecl.} =
+## The press is read from our own button each frame rather than hooked. Detouring OnClick
+## reached every button in the panel - it is inherited from ButtonBase - and a bad trampoline
+## there took VD's whole navigation down with SIGILL. Polling touches nothing but our entry.
+proc pollEntry(self: pointer) {.nimcall.} =
   let f = sectionFeature
-  if self != nil and self == f.entry:
-    guard "VDExtra nav click":
-      logI("section: " & SECTION_NAME & " clicked")
-    return
-  let orig = origAs[ClickFn](f.onClick)
-  if orig != nil: orig(self, args)
+  if f.entry == nil or f.getPressed == nil: return
+  let pressed = f.getPressed(f.entry)
+  if pressed and not f.wasPressed:
+    logI("section: " & SECTION_NAME & " clicked")
+  f.wasPressed = pressed
 
 proc onPanelLoaded(self: pointer) {.nimcall.} =
   let f = sectionFeature
@@ -250,8 +247,6 @@ proc onPanelLoaded(self: pointer) {.nimcall.} =
     f.entry = entry
     logI("section: added " & SECTION_NAME & " to a " & $stackCount & "-entry nav")
 
-sectionFeature.onClick = newHook(BUTTON_BASE, "OnClick", 1, cast[pointer](hookOnClick))
-
 method install*(f: SectionFeature): bool =
   if not f.enabled.load():
     logI("vdextra section off: hook skipped")
@@ -294,12 +289,15 @@ method install*(f: SectionFeature): bool =
   if buttonBase == nil:
     logE("section: ButtonBase not found, the entry would not be clickable")
     return false
-  if not f.onClick.install(buttonBase):
-    logE("section: ButtonBase::OnClick hook failed")
+  f.getPressed = cast[GetBoolFn](methodAddr(buttonBase, "get_IsPressed", 0))
+  if f.getPressed == nil:
+    logE("section: ButtonBase::get_IsPressed not resolvable")
     return false
 
   if not installLoadContent(): return false
   onLoadContent(onPanelLoaded)
+  if not installPanelUpdate(): return false
+  onPanelTick(pollEntry)
 
   logI("registered the " & SECTION_NAME & " nav entry")
   true
