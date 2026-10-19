@@ -37,6 +37,10 @@ const
   ## so ours looked permanently selected until it was given the inactive colour.
   TEXT_COLOR_OFFSET = 608
 
+  ## VD's tab grids paint an opaque background; a constructed one is fully transparent, so the
+  ## previous page shows straight through it however often the panel is redrawn.
+  BACKGROUND_COLOR_OFFSET = 196
+
   ## Xenko visibility: 0 Visible, 1 Hidden, 2 Collapsed. VD keeps every tab's grid parented in
   ## the content cell and simply toggles this, so a new tab is one more sibling to flip.
   VISIBILITY_VISIBLE = 0'i32
@@ -179,6 +183,11 @@ proc adoptFrom(fresh, model: pointer, offsets: openArray[int]) =
     let v = readPtrAt(model, off)
     if v != nil: writePtrAt(fresh, off, v)
 
+proc copyBackground(fresh, model: pointer) =
+  if fresh == nil or model == nil: return
+  let colour = cast[ptr uint32](cast[uint64](model) + uint64(BACKGROUND_COLOR_OFFSET))[]
+  cast[ptr uint32](cast[uint64](fresh) + uint64(BACKGROUND_COLOR_OFFSET))[] = colour
+
 proc textColorAt(text: pointer): uint32 =
   if text == nil: 0'u32
   else: cast[ptr uint32](cast[uint64](text) + uint64(TEXT_COLOR_OFFSET))[]
@@ -301,6 +310,7 @@ proc buildContent(modelGrid, modelText: pointer): pointer =
   if grid == nil: return nil
   discard pin(grid)
   adoptFrom(grid, modelGrid, [f.offRenderer, f.offLayoutCtx])
+  copyBackground(grid, modelGrid)
   placeInTabCell(grid, modelGrid)
 
   let label = newInstance(f.textClass)
