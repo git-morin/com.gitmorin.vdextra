@@ -60,7 +60,10 @@ type
 
 var sectionFeature* = SectionFeature(name: "vdextra section")
 
-sectionFeature.enabled.store(true)
+## Off: the entry renders and sits last in the nav, but hooking ButtonBase.OnClick takes down
+## every button in the panel with SIGILL in a JIT trampoline. OnClick is virtual and shared by
+## all buttons, so a bad detour there breaks VD's own navigation, not just ours.
+sectionFeature.enabled.store(false)
 
 const
   LIST_ITEMS = 16
