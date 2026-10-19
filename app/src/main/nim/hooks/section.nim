@@ -89,8 +89,9 @@ type
     gridClass, gridBaseClass: MonoClass
     rowKey, columnKey: MonoObject
     offDepProps, offPanelGrid, offTabPanels: int
+    offForceDrawAll: int
     content: pointer ## our tab's grid, pinned
-    showing: bool
+    showing, wasShowing: bool
     entry: pointer   ## our nav button, pinned
     wasPressed: bool
 
@@ -350,6 +351,13 @@ proc syncContent(self: pointer) =
       f.setVisibility(grid, VISIBILITY_HIDDEN)
   f.setVisibility(f.content, VISIBILITY_VISIBLE)
 
+proc requestRedraw(self: pointer) =
+  ## VD repaints only the regions it believes changed, so a visibility flip made behind its back
+  ## leaves the previous tab's pixels on screen. This is the same flag the settings scroller
+  ## needed to make its movement show up.
+  let f = sectionFeature
+  if f.offForceDrawAll >= 0: writeBoolAt(self, f.offForceDrawAll, true)
+
 ## The press is read from our own button each frame rather than hooked. Detouring OnClick
 ## reached every button in the panel - it is inherited from ButtonBase - and a bad trampoline
 ## there took VD's whole navigation down with SIGILL. Polling touches nothing but our entry.
@@ -370,6 +378,9 @@ proc pollEntry(self: pointer) {.nimcall.} =
   f.wasPressed = pressed
 
   syncContent(self)
+  if f.showing != f.wasShowing:
+    requestRedraw(self)
+    f.wasShowing = f.showing
 
 proc onPanelLoaded(self: pointer) {.nimcall.} =
   let f = sectionFeature
@@ -499,6 +510,7 @@ method install*(f: SectionFeature): bool =
   f.offDepProps = fieldOffset(ui, "<DependencyProperties>k__BackingField")
   f.offPanelGrid = fieldOffset(getClass(UI_PANEL), "<Grid>k__BackingField")
   f.offTabPanels = fieldOffset(cp, "_tabPanels")
+  f.offForceDrawAll = fieldOffset(cp, "_forceDrawAll")
 
   f.gridBaseClass = getClass(GRID_BASE)
   let container = getClass(PROPERTY_CONTAINER)
