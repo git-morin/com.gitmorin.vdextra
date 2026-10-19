@@ -83,7 +83,7 @@ type
     getVisibility: GetI32Fn
     containerSetObject: SetObj2Fn
     containerGetItem: GetObj2Fn
-    gridClass: MonoClass
+    gridClass, gridBaseClass: MonoClass
     rowKey, columnKey: MonoObject
     offDepProps, offPanelGrid, offTabPanels: int
     content: pointer ## our tab's grid, pinned
@@ -262,8 +262,18 @@ proc reportGaps(fresh, model: pointer, label: string) =
 ## Places the grid in the same cell as VD's own tabs. The row and column live in each
 ## element's property container under GridBase's static keys; the boxed values are taken from a
 ## real tab rather than created, which avoids boxing an int from native code.
+## Reading these statics runs GridBase's class constructor, so it happens here - on the game
+## thread, inside a managed call - rather than at install time, where Mono aborts the process
+## with a thread-state transition error.
+proc resolveCellKeys() =
+  let f = sectionFeature
+  if f.rowKey != nil or f.gridBaseClass == nil: return
+  f.rowKey = staticObject(f.gridBaseClass, "RowPropertyKey")
+  f.columnKey = staticObject(f.gridBaseClass, "ColumnPropertyKey")
+
 proc placeInTabCell(grid, model: pointer) =
   let f = sectionFeature
+  resolveCellKeys()
   if f.containerSetObject == nil or f.containerGetItem == nil: return
   let ours = readPtrAt(grid, f.offDepProps)
   let theirs = readPtrAt(model, f.offDepProps)
@@ -482,15 +492,12 @@ method install*(f: SectionFeature): bool =
   f.offPanelGrid = fieldOffset(getClass(UI_PANEL), "<Grid>k__BackingField")
   f.offTabPanels = fieldOffset(cp, "_tabPanels")
 
-  let gridBase = getClass(GRID_BASE)
-  if gridBase != nil:
-    f.rowKey = staticObject(gridBase, "RowPropertyKey")
-    f.columnKey = staticObject(gridBase, "ColumnPropertyKey")
+  f.gridBaseClass = getClass(GRID_BASE)
   let container = getClass(PROPERTY_CONTAINER)
   if container != nil:
     f.containerSetObject = cast[SetObj2Fn](methodAddr(container, "SetObject", 2))
     f.containerGetItem = cast[GetObj2Fn](methodAddr(container, "get_Item", 1))
-  if f.gridClass == nil or f.rowKey == nil or f.columnKey == nil or
+  if f.gridClass == nil or f.gridBaseClass == nil or
      f.containerSetObject == nil or f.offTabPanels < 0:
     logE("section: tab content members missing; the entry will have no page")
   if f.getPressed == nil:
