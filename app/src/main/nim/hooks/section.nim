@@ -15,6 +15,10 @@ import ../vdlog, ../mono, hook, loadcontent, panelupdate
 const
   UI_ELEMENT = "Xenko.UI.UIElement, Xenko.UI"
   PANEL = "Xenko.UI.Panels.Panel, Xenko.UI"
+  UI_PANEL = "VirtualDesktop.Mobile.UIPanel, VirtualDesktop.Mobile"
+  GRID = "Xenko.UI.Panels.Grid, Xenko.UI"
+  GRID_BASE = "Xenko.UI.Panels.GridBase, Xenko.UI"
+  PROPERTY_CONTAINER = "Xenko.Core.PropertyContainerClass, Xenko.Core"
   BUTTON = "Xenko.UI.Controls.Button, Xenko.UI"
   BUTTON_BASE = "Xenko.UI.Controls.ButtonBase, Xenko.UI"
   TEXT_BLOCK = "Xenko.UI.Controls.TextBlock, Xenko.UI"
@@ -33,6 +37,18 @@ const
   ## so ours looked permanently selected until it was given the inactive colour.
   TEXT_COLOR_OFFSET = 608
 
+  ## Xenko visibility: 0 Visible, 1 Hidden, 2 Collapsed. VD keeps every tab's grid parented in
+  ## the content cell and simply toggles this, so a new tab is one more sibling to flip.
+  VISIBILITY_VISIBLE = 0'i32
+  VISIBILITY_HIDDEN = 1'i32
+
+  ## The cell every tab grid occupies in VD's root layout.
+  TAB_ROW = 1
+  TAB_COLUMN = 1
+
+  PLACEHOLDER_TEXT = "VDExtra settings will live here."
+  PLACEHOLDER_SIZE = 20.0
+
   ## VD's entries measure 81 tall; ours measures to its text at 41, since it carries none of
   ## the padding theirs get from the serialised asset. Setting it explicitly is enough now the
   ## entry is in Panel.Children and therefore part of the measure pass.
@@ -48,6 +64,9 @@ const
 type
   GetBoolFn = proc(self: pointer): bool {.cdecl, gcsafe.}
   SetI32Fn = proc(self: pointer, v: int32) {.cdecl, gcsafe.}
+  GetI32Fn = proc(self: pointer): int32 {.cdecl, gcsafe.}
+  SetObj2Fn = proc(self: pointer, key: pointer, value: pointer) {.cdecl, gcsafe.}
+  GetObj2Fn = proc(self: pointer, key: pointer): pointer {.cdecl, gcsafe.}
   GetObjFn = proc(self: pointer): pointer {.cdecl, gcsafe.}
   SetObjFn = proc(self: pointer, v: pointer) {.cdecl, gcsafe.}
   AddFn = proc(self: pointer, item: pointer) {.cdecl, gcsafe.}
@@ -60,7 +79,16 @@ type
     getPressed: GetBoolFn
     setClickMode: SetI32Fn
     setHeight: SetF32Fn
-    entry: pointer ## our nav button, pinned
+    setVisibility: SetI32Fn
+    getVisibility: GetI32Fn
+    containerSetObject: SetObj2Fn
+    containerGetItem: GetObj2Fn
+    gridClass: MonoClass
+    rowKey, columnKey: MonoObject
+    offDepProps, offPanelGrid, offTabPanels: int
+    content: pointer ## our tab's grid, pinned
+    showing: bool
+    entry: pointer   ## our nav button, pinned
     wasPressed: bool
 
     offGridMain, offRenderer, offFont, offLayoutCtx, offParent: int
@@ -77,20 +105,6 @@ type
 var sectionFeature* = SectionFeature(name: "vdextra section")
 
 sectionFeature.enabled.store(true)
-
-const
-  LIST_ITEMS = 16
-  LIST_SIZE = 24
-  ARRAY_DATA = 32
-
-proc childCount(coll: pointer): int =
-  if coll == nil: 0
-  else: int(cast[ptr int32](cast[uint64](coll) + uint64(LIST_SIZE))[])
-
-proc childAt(coll: pointer, i: int): pointer =
-  let items = cast[ptr pointer](cast[uint64](coll) + uint64(LIST_ITEMS))[]
-  if items == nil: return nil
-  cast[ptr pointer](cast[uint64](items) + uint64(ARRAY_DATA + i * 8))[]
 
 ## Add lives on the collection's own generic type, so it is resolved by walking up from the
 ## instance rather than from a class name known ahead of time.
@@ -245,6 +259,73 @@ proc reportGaps(fresh, model: pointer, label: string) =
         inc shown
     cls = pClassGetParent(cls)
 
+## Places the grid in the same cell as VD's own tabs. The row and column live in each
+## element's property container under GridBase's static keys; the boxed values are taken from a
+## real tab rather than created, which avoids boxing an int from native code.
+proc placeInTabCell(grid, model: pointer) =
+  let f = sectionFeature
+  if f.containerSetObject == nil or f.containerGetItem == nil: return
+  let ours = readPtrAt(grid, f.offDepProps)
+  let theirs = readPtrAt(model, f.offDepProps)
+  if ours == nil or theirs == nil: return
+  for key in [f.rowKey, f.columnKey]:
+    if key == nil: continue
+    let boxed = f.containerGetItem(theirs, key)
+    if boxed != nil: f.containerSetObject(ours, key, boxed)
+
+## Builds the tab's content: a grid carrying one placeholder label, styled from a real tab so
+## it inherits the renderer and layout context a constructed control never receives.
+proc buildContent(modelGrid, modelText: pointer): pointer =
+  let f = sectionFeature
+  let grid = newInstance(f.gridClass)
+  if grid == nil: return nil
+  discard pin(grid)
+  adoptFrom(grid, modelGrid, [f.offRenderer, f.offLayoutCtx])
+  placeInTabCell(grid, modelGrid)
+
+  let label = newInstance(f.textClass)
+  if label == nil: return nil
+  discard pin(label)
+  adoptFrom(label, modelText, [f.offRenderer, f.offFont, f.offLayoutCtx])
+  let text = makeMono(PLACEHOLDER_TEXT)
+  if text == nil: return nil
+  f.setText(label, text)
+  if f.setTextSize != nil: f.setTextSize(label, cfloat(PLACEHOLDER_SIZE))
+  setTextColorAt(label, textColorAt(modelText))
+
+  let kids = f.getChildren(grid)
+  let add = resolveAdd(kids)
+  if add == nil: return nil
+  add(kids, label)
+
+  if f.setVisibility != nil: f.setVisibility(grid, VISIBILITY_HIDDEN)
+  grid
+
+## Shows our tab and hides VD's, or steps aside when VD has switched to one of its own.
+proc syncContent(self: pointer) =
+  let f = sectionFeature
+  if f.content == nil or f.setVisibility == nil or f.getVisibility == nil: return
+  let tabs = readPtrAt(self, f.offTabPanels)
+  if tabs == nil: return
+  let count = childCount(tabs)
+  if count <= 0 or count > 64: return
+
+  var vdVisible = false
+  for i in 0 ..< count:
+    let tab = arrayAt(tabs, i)
+    if tab == nil: continue
+    let grid = readPtrAt(tab, f.offPanelGrid)
+    if grid == nil: continue
+    if f.showing:
+      # Ours is up, so nothing of VD's should be.
+      if f.getVisibility(grid) == VISIBILITY_VISIBLE:
+        f.setVisibility(grid, VISIBILITY_HIDDEN)
+    elif f.getVisibility(grid) == VISIBILITY_VISIBLE:
+      vdVisible = true
+
+  if f.showing and vdVisible: discard
+  f.setVisibility(f.content, if f.showing: VISIBILITY_VISIBLE else: VISIBILITY_HIDDEN)
+
 ## The press is read from our own button each frame rather than hooked. Detouring OnClick
 ## reached every button in the panel - it is inherited from ButtonBase - and a bad trampoline
 ## there took VD's whole navigation down with SIGILL. Polling touches nothing but our entry.
@@ -253,8 +334,24 @@ proc pollEntry(self: pointer) {.nimcall.} =
   if f.entry == nil or f.getPressed == nil: return
   let pressed = f.getPressed(f.entry)
   if pressed and not f.wasPressed:
-    logI("section: " & SECTION_NAME & " clicked")
+    f.showing = true
+    logI("section: " & SECTION_NAME & " selected")
   f.wasPressed = pressed
+
+  # VD drives tab changes from a settings event, not from the button, so the only way to learn
+  # it has switched away is to watch one of its own tabs become visible again.
+  if f.showing and f.content != nil and f.getVisibility != nil:
+    let tabs = readPtrAt(self, f.offTabPanels)
+    if tabs != nil:
+      let count = childCount(tabs)
+      for i in 0 ..< min(count, 64):
+        let tab = arrayAt(tabs, i)
+        if tab == nil: continue
+        let grid = readPtrAt(tab, f.offPanelGrid)
+        if grid != nil and f.getVisibility(grid) == VISIBILITY_VISIBLE:
+          f.showing = false
+          break
+  syncContent(self)
 
 proc onPanelLoaded(self: pointer) {.nimcall.} =
   let f = sectionFeature
@@ -307,6 +404,26 @@ proc onPanelLoaded(self: pointer) {.nimcall.} =
     add(entries, entry)
     f.entry = entry
 
+    # The tab's own content: a sibling of VD's tab grids in the same cell, hidden until the
+    # entry is chosen. VD keeps all of them parented and just toggles visibility.
+    let tabs = readPtrAt(self, f.offTabPanels)
+    let firstTab = if tabs == nil: nil else: arrayAt(tabs, 0)
+    let modelGrid = if firstTab == nil: nil else: readPtrAt(firstTab, f.offPanelGrid)
+    if modelGrid != nil:
+      let modelText = firstTextBlock(model, 0)
+      let content = buildContent(modelGrid, modelText)
+      if content == nil:
+        logE("section: could not build the tab content")
+      else:
+        let rootKids = f.getChildren(readPtrAt(self, f.offGridMain))
+        let addRoot = resolveAdd(rootKids)
+        if addRoot == nil:
+          logE("section: root grid has no Add")
+        else:
+          addRoot(rootKids, content)
+          f.content = content
+          logI("section: content panel added beside " & $childCount(tabs) & " VD tab(s)")
+
     logI("section: added " & SECTION_NAME & " to a " & $stackCount & "-entry nav")
 
 method install*(f: SectionFeature): bool =
@@ -357,6 +474,25 @@ method install*(f: SectionFeature): bool =
   f.getPressed = cast[GetBoolFn](methodAddr(buttonBase, "get_IsPressed", 0))
   f.setClickMode = cast[SetI32Fn](methodAddr(buttonBase, "set_ClickMode", 1))
   f.setHeight = cast[SetF32Fn](methodAddr(ui, "set_Height", 1))
+  f.setVisibility = cast[SetI32Fn](methodAddr(ui, "set_Visibility", 1))
+  f.getVisibility = cast[GetI32Fn](methodAddr(ui, "get_Visibility", 0))
+
+  f.gridClass = getClass(GRID)
+  f.offDepProps = fieldOffset(ui, "<DependencyProperties>k__BackingField")
+  f.offPanelGrid = fieldOffset(getClass(UI_PANEL), "<Grid>k__BackingField")
+  f.offTabPanels = fieldOffset(cp, "_tabPanels")
+
+  let gridBase = getClass(GRID_BASE)
+  if gridBase != nil:
+    f.rowKey = staticObject(gridBase, "RowPropertyKey")
+    f.columnKey = staticObject(gridBase, "ColumnPropertyKey")
+  let container = getClass(PROPERTY_CONTAINER)
+  if container != nil:
+    f.containerSetObject = cast[SetObj2Fn](methodAddr(container, "SetObject", 2))
+    f.containerGetItem = cast[GetObj2Fn](methodAddr(container, "get_Item", 1))
+  if f.gridClass == nil or f.rowKey == nil or f.columnKey == nil or
+     f.containerSetObject == nil or f.offTabPanels < 0:
+    logE("section: tab content members missing; the entry will have no page")
   if f.getPressed == nil:
     logE("section: ButtonBase::get_IsPressed not resolvable")
     return false

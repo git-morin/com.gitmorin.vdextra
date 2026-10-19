@@ -25,6 +25,9 @@ type
   ClassGetFieldFn = proc(c: MonoClass, name: cstring): MonoField {.cdecl, gcsafe.}
   FieldGetValueFn = proc(o: pointer, f: MonoField, outv: pointer) {.cdecl, gcsafe.}
   FieldSetValueFn = proc(o: pointer, f: MonoField, v: pointer) {.cdecl, gcsafe.}
+  FieldStaticGetFn = proc(vt: pointer, f: MonoField, outv: pointer) {.cdecl, gcsafe.}
+  ClassVtableFn = proc(d: MonoDomain, c: MonoClass): pointer {.cdecl, gcsafe.}
+  RuntimeClassInitFn = proc(vt: pointer) {.cdecl, gcsafe.}
   StringNewUtf16Fn = proc(d: MonoDomain, text: ptr uint16, len: int32): MonoString {.cdecl, gcsafe.}
   GchandleNewFn = proc(o: MonoObject, pinned: cint): MonoGCHandle {.cdecl, gcsafe.}
   GchandleGetFn = proc(h: MonoGCHandle): MonoObject {.cdecl, gcsafe.}
@@ -53,6 +56,9 @@ var
   pClassGetField*: ClassGetFieldFn
   pFieldGetValue*: FieldGetValueFn
   pFieldSetValue*: FieldSetValueFn
+  pFieldStaticGet*: FieldStaticGetFn
+  pClassVtable*: ClassVtableFn
+  pRuntimeClassInit*: RuntimeClassInitFn
   pStringNewUtf16*: StringNewUtf16Fn
   pGchandleNew*: GchandleNewFn
   pGchandleGet*: GchandleGetFn
@@ -102,6 +108,9 @@ proc resolveMono*(sym: proc(name: cstring): pointer {.cdecl, gcsafe.}) =
   pClassGetField = cast[ClassGetFieldFn](sym("mono_class_get_field_from_name"))
   pFieldGetValue = cast[FieldGetValueFn](sym("mono_field_get_value"))
   pFieldSetValue = cast[FieldSetValueFn](sym("mono_field_set_value"))
+  pFieldStaticGet = cast[FieldStaticGetFn](sym("mono_field_static_get_value"))
+  pClassVtable = cast[ClassVtableFn](sym("mono_class_vtable"))
+  pRuntimeClassInit = cast[RuntimeClassInitFn](sym("mono_runtime_class_init"))
   pStringNewUtf16 = cast[StringNewUtf16Fn](sym("mono_string_new_utf16"))
   pGchandleNew = cast[GchandleNewFn](sym("mono_gchandle_new"))
   pGchandleGet = cast[GchandleGetFn](sym("mono_gchandle_get_target"))
@@ -388,6 +397,40 @@ proc methodAddrInherited*(c: MonoClass, name: string, np: int): pointer =
     if a != nil: return a
     cur = pClassGetParent(cur)
   nil
+
+## Mono's collection and array layout: a List-like collection keeps its storage behind an
+## items pointer, a managed array *is* the storage, and both report their length at the same
+## offset - so only the element read differs between them.
+const
+  LIST_ITEMS* = 16
+  LIST_SIZE* = 24
+  ARRAY_DATA* = 32
+
+proc childCount*(coll: pointer): int =
+  if coll == nil: 0
+  else: int(cast[ptr int32](cast[uint64](coll) + uint64(LIST_SIZE))[])
+
+proc childAt*(coll: pointer, i: int): pointer =
+  let items = cast[ptr pointer](cast[uint64](coll) + uint64(LIST_ITEMS))[]
+  if items == nil: return nil
+  cast[ptr pointer](cast[uint64](items) + uint64(ARRAY_DATA + i * 8))[]
+
+proc arrayAt*(arr: pointer, i: int): pointer =
+  if arr == nil: return nil
+  cast[ptr pointer](cast[uint64](arr) + uint64(ARRAY_DATA + i * 8))[]
+
+proc staticObject*(c: MonoClass, name: string): MonoObject =
+  ## Reads a reference-typed static field, initialising the class so the slot is populated.
+  if c == nil or pClassVtable == nil or pRuntimeClassInit == nil or
+     pFieldStaticGet == nil or pClassGetField == nil: return nil
+  let f = pClassGetField(c, name.cstring)
+  if f == nil: return nil
+  let vt = pClassVtable(domain(), c)
+  if vt == nil: return nil
+  pRuntimeClassInit(vt)
+  var v: pointer = nil
+  pFieldStaticGet(vt, f, addr v)
+  v
 
 proc classOf*(o: MonoObject): MonoClass =
   if o == nil or pObjGetClass == nil: nil else: pObjGetClass(o)

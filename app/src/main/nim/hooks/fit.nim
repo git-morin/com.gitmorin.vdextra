@@ -63,26 +63,6 @@ var fitFeature* = FitFeature(name: "settings fit")
 fitFeature.enabled.store(true)
 fitFeature.pad.store(16.0'f32)
 
-const
-  LIST_ITEMS = 16
-  LIST_SIZE = 24
-  ARRAY_DATA = 32
-
-proc childCount(coll: pointer): int =
-  if coll == nil: 0
-  else: int(cast[ptr int32](cast[uint64](coll) + uint64(LIST_SIZE))[])
-
-proc childAt(coll: pointer, i: int): pointer =
-  let items = cast[ptr pointer](cast[uint64](coll) + uint64(LIST_ITEMS))[]
-  if items == nil: return nil
-  cast[ptr pointer](cast[uint64](items) + uint64(ARRAY_DATA + i * 8))[]
-
-## A collection holds its storage behind an items pointer; a managed array *is* the storage.
-## Both report their length at the same offset, so only the element read differs.
-proc arrayAt(arr: pointer, i: int): pointer =
-  if arr == nil: return nil
-  cast[ptr pointer](cast[uint64](arr) + uint64(ARRAY_DATA + i * 8))[]
-
 proc marginAt(o: pointer, edge: int): float32 =
   let off = fitFeature.offMargin
   if o == nil or off < 0: return 0'f32
