@@ -29,6 +29,11 @@ const
   MIN_NAV_ENTRIES = 4
   NAV_SEARCH_DEPTH = 8
 
+  ## VD's entries measure 81 tall; ours measures to its text at 41, since it carries none of
+  ## the padding theirs get from the serialised asset. Setting it explicitly is enough now the
+  ## entry is in Panel.Children and therefore part of the measure pass.
+  NAV_ENTRY_HEIGHT = 81.0
+
 
   ## Builds the entry and reports what is still unset, without attaching it. Inserting a control
   ## that is missing something aborts the game thread, and the stack only ever names the first
@@ -39,6 +44,7 @@ const
 type
   GetBoolFn = proc(self: pointer): bool {.cdecl, gcsafe.}
   SetI32Fn = proc(self: pointer, v: int32) {.cdecl, gcsafe.}
+  SetF32Fn = proc(self: pointer, v: cfloat) {.cdecl, gcsafe.}
   GetObjFn = proc(self: pointer): pointer {.cdecl, gcsafe.}
   SetObjFn = proc(self: pointer, v: pointer) {.cdecl, gcsafe.}
   AddFn = proc(self: pointer, item: pointer) {.cdecl, gcsafe.}
@@ -50,6 +56,7 @@ type
     enabled*: Atomic[bool]
     getPressed: GetBoolFn
     setClickMode: SetI32Fn
+    setHeight: SetF32Fn
     entry: pointer ## our nav button, pinned
     wasPressed: bool
 
@@ -176,6 +183,7 @@ proc buildEntry(model: pointer): pointer =
   # ClickMode 0 is what VD's own entries use; a fresh Button defaults to 1 and would react on
   # release rather than press, which get_IsPressed never shows.
   if f.setClickMode != nil: f.setClickMode(btn, 0'i32)
+  if f.setHeight != nil: f.setHeight(btn, cfloat(NAV_ENTRY_HEIGHT))
 
   f.setContent(btn, label)
   btn
@@ -307,6 +315,7 @@ method install*(f: SectionFeature): bool =
     return false
   f.getPressed = cast[GetBoolFn](methodAddr(buttonBase, "get_IsPressed", 0))
   f.setClickMode = cast[SetI32Fn](methodAddr(buttonBase, "set_ClickMode", 1))
+  f.setHeight = cast[SetF32Fn](methodAddr(ui, "set_Height", 1))
   if f.getPressed == nil:
     logE("section: ButtonBase::get_IsPressed not resolvable")
     return false
