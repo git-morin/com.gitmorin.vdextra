@@ -1,5 +1,5 @@
 import std/atomics
-import ../vdlog, ../mono, hook
+import ../vdlog, ../mono, hook, loadcontent
 
 ## Feasibility spike: add a VDExtra entry to the control panel's left navigation.
 ##
@@ -12,7 +12,6 @@ import ../vdlog, ../mono, hook
 ## carry cell placement, and its TextBlock carries the font and size the nav uses.
 
 const
-  CONTROL_PANEL = "VirtualDesktop.Mobile.ControlPanel, VirtualDesktop.Mobile"
   UI_ELEMENT = "Xenko.UI.UIElement, Xenko.UI"
   BUTTON = "Xenko.UI.Controls.Button, Xenko.UI"
   TEXT_BLOCK = "Xenko.UI.Controls.TextBlock, Xenko.UI"
@@ -28,7 +27,6 @@ const
   MIN_NAV_ENTRIES = 4
 
 type
-  VoidRetFn = proc(self: pointer) {.cdecl, gcsafe.}
   GetObjFn = proc(self: pointer): pointer {.cdecl, gcsafe.}
   SetObjFn = proc(self: pointer, v: pointer) {.cdecl, gcsafe.}
   AddFn = proc(self: pointer, item: pointer) {.cdecl, gcsafe.}
@@ -37,7 +35,6 @@ type
   GetF32Fn = proc(self: pointer): cfloat {.cdecl, gcsafe.}
 
   SectionFeature* = ref object of Feature
-    loadContent: Hook
     enabled*: Atomic[bool]
 
     offGridMain, offDepProps: int
@@ -144,46 +141,39 @@ proc buildEntry(model: pointer): pointer =
   f.setContent(btn, label)
   btn
 
-proc hookLoadContent(self: pointer) {.cdecl.} =
+proc onPanelLoaded(self: pointer) {.nimcall.} =
   let f = sectionFeature
-  let orig = origAs[VoidRetFn](f.loadContent)
-  if orig != nil: orig(self)
+  if not f.enabled.load() or f.applied or self == nil: return
+  let gridMain = readPtrAt(self, f.offGridMain)
+  if gridMain == nil:
+    logI("section: no _gridMain at LoadContent exit")
+    return
 
-  guard "ControlPanel.LoadContent":
-    if not f.enabled.load() or f.applied or self == nil: return
-    let gridMain = readPtrAt(self, f.offGridMain)
-    if gridMain == nil:
-      logI("section: no _gridMain at LoadContent exit")
-      return
+  let stack = findNavStack(gridMain)
+  if stack == nil:
+    logI("section: nav stack not found")
+    return
+  f.applied = true
 
-    let stack = findNavStack(gridMain)
-    if stack == nil:
-      logI("section: nav stack not found")
-      return
-    f.applied = true
+  let entries = f.getVisualChildren(stack)
+  let existing = childCount(entries)
+  let model = childAt(entries, 0)
+  if model == nil:
+    logI("section: nav has no entry to copy")
+    return
 
-    let entries = f.getVisualChildren(stack)
-    let existing = childCount(entries)
-    let model = childAt(entries, 0)
-    if model == nil:
-      logI("section: nav has no entry to copy")
-      return
+  let add = resolveAdd(entries)
+  if add == nil:
+    logE("section: nav collection has no Add")
+    return
 
-    let add = resolveAdd(entries)
-    if add == nil:
-      logE("section: nav collection has no Add")
-      return
+  let entry = buildEntry(model)
+  if entry == nil:
+    logE("section: could not build the entry")
+    return
 
-    let entry = buildEntry(model)
-    if entry == nil:
-      logE("section: could not build the entry")
-      return
-
-    add(entries, entry)
-    logI("section: added " & SECTION_NAME & " after " & $existing & " existing entry(ies)")
-
-sectionFeature.loadContent = newHook(CONTROL_PANEL, "LoadContent", 0,
-                                     cast[pointer](hookLoadContent))
+  add(entries, entry)
+  logI("section: added " & SECTION_NAME & " after " & $existing & " existing entry(ies)")
 
 method install*(f: SectionFeature): bool =
   if not f.enabled.load():
@@ -217,9 +207,8 @@ method install*(f: SectionFeature): bool =
     logE("section: a required member is missing")
     return false
 
-  if not f.loadContent.install(cp):
-    logE("section: ControlPanel::LoadContent hook failed")
-    return false
+  if not installLoadContent(): return false
+  onLoadContent(onPanelLoaded)
 
-  logI("hooked ControlPanel::LoadContent to add the " & SECTION_NAME & " section")
+  logI("registered the " & SECTION_NAME & " nav entry")
   true

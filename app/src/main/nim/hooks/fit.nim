@@ -1,5 +1,5 @@
 import std/[atomics, strutils]
-import ../vdlog, ../mono, hook
+import ../vdlog, ../mono, hook, loadcontent
 
 ## Makes VD's control panel pages fit the space they are given, so their last rows stop being
 ## unreachable and their descriptions stop landing on the control below.
@@ -14,7 +14,6 @@ import ../vdlog, ../mono, hook
 ## attach from outside, which is the only reason this hook point is reachable at all.
 
 const
-  CONTROL_PANEL = "VirtualDesktop.Mobile.ControlPanel, VirtualDesktop.Mobile"
   UI_PANEL = "VirtualDesktop.Mobile.UIPanel, VirtualDesktop.Mobile"
   UI_ELEMENT = "Xenko.UI.UIElement, Xenko.UI"
   PANEL = "Xenko.UI.Panels.Panel, Xenko.UI"
@@ -41,13 +40,11 @@ const
   M_BOTTOM = 3
 
 type
-  VoidRetFn = proc(self: pointer) {.cdecl, gcsafe.}
   GetObjFn = proc(self: pointer): pointer {.cdecl, gcsafe.}
   GetBoolFn = proc(self: pointer): bool {.cdecl, gcsafe.}
   SetBoolFn = proc(self: pointer, v: bool) {.cdecl, gcsafe.}
 
   FitFeature* = ref object of Feature
-    loadContent: Hook
     enabled*: Atomic[bool]
     pad*: Atomic[float32] ## smallest left and top margin a column may end up with
 
@@ -193,34 +190,28 @@ proc fitPage(grid: pointer, label: string) =
   logI("fit: " & label & " " & $touched & " column(s), reclaimed " &
        formatFloat(reclaimed, ffDecimal, 0) & "px")
 
-proc hookLoadContent(self: pointer) {.cdecl.} =
+proc onPanelLoaded(self: pointer) {.nimcall.} =
   let f = fitFeature
-  let orig = origAs[VoidRetFn](f.loadContent)
-  if orig != nil: orig(self)
+  if not f.enabled.load() or f.applied or self == nil: return
+  let tabs = readPtrAt(self, f.offTabPanels)
+  if tabs == nil:
+    logI("fit: no tab panels at LoadContent exit")
+    return
+  f.applied = true
 
-  guard "ControlPanel.LoadContent":
-    if not f.enabled.load() or f.applied or self == nil: return
-    let tabs = readPtrAt(self, f.offTabPanels)
-    if tabs == nil:
-      logI("fit: no tab panels at LoadContent exit")
-      return
-    f.applied = true
+  let count = childCount(tabs)
+  if count <= 0 or count > 64:
+    logE("fit: implausible tab count " & $count)
+    return
 
-    let count = childCount(tabs)
-    if count <= 0 or count > 64:
-      logE("fit: implausible tab count " & $count)
-      return
+  for i in 0 ..< count:
+    let tab = arrayAt(tabs, i)
+    if tab == nil: continue
+    let grid = readPtrAt(tab, f.offPanelGrid)
+    if grid == nil: continue
+    fitPage(grid, className(classOf(tab)))
 
-    for i in 0 ..< count:
-      let tab = arrayAt(tabs, i)
-      if tab == nil: continue
-      let grid = readPtrAt(tab, f.offPanelGrid)
-      if grid == nil: continue
-      fitPage(grid, className(classOf(tab)))
-
-    logI("fit: " & $count & " tab(s) done, wrapped " & $f.wrapped & " label(s)")
-
-fitFeature.loadContent = newHook(CONTROL_PANEL, "LoadContent", 0, cast[pointer](hookLoadContent))
+  logI("fit: " & $count & " tab(s) done, wrapped " & $f.wrapped & " label(s)")
 
 method install*(f: FitFeature): bool =
   if not f.enabled.load():
@@ -256,9 +247,8 @@ method install*(f: FitFeature): bool =
     logE("fit: Panel::get_Children not resolvable")
     return false
 
-  if not f.loadContent.install(cp):
-    logE("fit: ControlPanel::LoadContent hook failed")
-    return false
+  if not installLoadContent(): return false
+  onLoadContent(onPanelLoaded)
 
-  logI("hooked ControlPanel::LoadContent to fit the settings page")
+  logI("registered the page fit pass")
   true

@@ -1,7 +1,7 @@
 import std/atomics
 import ../vdlog, ../mono
-import hook, sound, text, fonts, forcelan, bitrate, fit, section
-export hook, sound, text, fonts, forcelan, bitrate, fit, section
+import hook, loadcontent, sound, text, fonts, forcelan, bitrate, fit, section
+export hook, loadcontent, sound, text, fonts, forcelan, bitrate, fit, section
 
 # Order is load-bearing: font-independent features first so a missing TextBlock cannot
 # stop them, and text before the font-capture features, which need what it resolves.
