@@ -19,12 +19,10 @@ const
 
   SECTION_NAME = "VDEXTRA"
 
-  ## The nav column measures 300 wide; the content column beside it is 980.
-  NAV_WIDTH_MIN = 250.0
-  NAV_WIDTH_MAX = 350.0
-
-  ## A container holding this many children is the entry stack rather than a header or spacer.
+  ## The panel ships seven tabs; a container holding at least this many buttons is the nav
+  ## rather than some other row of controls.
   MIN_NAV_ENTRIES = 4
+  NAV_SEARCH_DEPTH = 6
 
 type
   GetObjFn = proc(self: pointer): pointer {.cdecl, gcsafe.}
@@ -56,7 +54,6 @@ const
   LIST_ITEMS = 16
   LIST_SIZE = 24
   ARRAY_DATA = 32
-  F_RENDER = 104
 
 proc childCount(coll: pointer): int =
   if coll == nil: 0
@@ -66,10 +63,6 @@ proc childAt(coll: pointer, i: int): pointer =
   let items = cast[ptr pointer](cast[uint64](coll) + uint64(LIST_ITEMS))[]
   if items == nil: return nil
   cast[ptr pointer](cast[uint64](items) + uint64(ARRAY_DATA + i * 8))[]
-
-proc renderWidth(o: pointer): float32 =
-  if o == nil: 0.0
-  else: cast[ptr float32](cast[uint64](o) + uint64(F_RENDER))[]
 
 ## Add lives on the collection's own generic type, so it is resolved by walking up from the
 ## instance rather than from a class name known ahead of time.
@@ -94,23 +87,33 @@ proc firstTextBlock(el: pointer, depth: int): pointer =
     if hit != nil: return hit
   nil
 
-## The nav column is the narrow one; the content column beside it is three times wider.
-proc findNavStack(gridMain: pointer): pointer =
+proc isButton(o: pointer): bool =
+  let target = sectionFeature.buttonClass
+  if o == nil or target == nil: return false
+  var k = classOf(o)
+  for _ in 0 ..< 6:
+    if k == nil: break
+    if k == target: return true
+    k = pClassGetParent(k)
+  false
+
+## Identified by structure, not by size: nothing has been measured yet at LoadContent, so every
+## render width here still reads zero. The nav is simply the container holding a button per tab.
+proc findNavStack(el: pointer, depth: int): pointer =
   let f = sectionFeature
-  let cols = f.getVisualChildren(gridMain)
-  let n = childCount(cols)
+  if el == nil or depth > NAV_SEARCH_DEPTH: return nil
+  let kids = f.getVisualChildren(el)
+  let n = childCount(kids)
   if n <= 0 or n > 512: return nil
+
+  var buttons = 0
   for i in 0 ..< n:
-    let col = childAt(cols, i)
-    if col == nil: continue
-    let w = renderWidth(col)
-    if w < NAV_WIDTH_MIN or w > NAV_WIDTH_MAX: continue
-    let inner = f.getVisualChildren(col)
-    let m = childCount(inner)
-    for j in 0 ..< m:
-      let cand = childAt(inner, j)
-      if cand == nil: continue
-      if childCount(f.getVisualChildren(cand)) >= MIN_NAV_ENTRIES: return cand
+    if isButton(childAt(kids, i)): inc buttons
+  if buttons >= MIN_NAV_ENTRIES: return el
+
+  for i in 0 ..< n:
+    let hit = findNavStack(childAt(kids, i), depth + 1)
+    if hit != nil: return hit
   nil
 
 proc buildEntry(model: pointer): pointer =
@@ -149,7 +152,7 @@ proc onPanelLoaded(self: pointer) {.nimcall.} =
     logI("section: no _gridMain at LoadContent exit")
     return
 
-  let stack = findNavStack(gridMain)
+  let stack = findNavStack(gridMain, 0)
   if stack == nil:
     logI("section: nav stack not found")
     return
