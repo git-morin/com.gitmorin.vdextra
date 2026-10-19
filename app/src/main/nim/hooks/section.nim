@@ -44,7 +44,6 @@ const
 type
   GetBoolFn = proc(self: pointer): bool {.cdecl, gcsafe.}
   SetI32Fn = proc(self: pointer, v: int32) {.cdecl, gcsafe.}
-  SetF32Fn = proc(self: pointer, v: cfloat) {.cdecl, gcsafe.}
   GetObjFn = proc(self: pointer): pointer {.cdecl, gcsafe.}
   SetObjFn = proc(self: pointer, v: pointer) {.cdecl, gcsafe.}
   AddFn = proc(self: pointer, item: pointer) {.cdecl, gcsafe.}
