@@ -8,8 +8,9 @@ import ../vdlog, ../mono, hook, loadcontent
 ## layout exactly once - an element added later is never laid out, which is what made the
 ## injected scroller invisible to VD's bounds and depth assignment.
 ##
-## Styling is copied from an existing nav button rather than invented: its DependencyProperties
-## carry cell placement, and its TextBlock carries the font and size the nav uses.
+## Styling is copied from an existing nav button rather than invented - its renderer, sprites,
+## font and text size. DependencyProperties is deliberately NOT copied: that would hand two
+## elements one instance, and the panels key their per-child caches by element.
 
 const
   UI_ELEMENT = "Xenko.UI.UIElement, Xenko.UI"
@@ -19,10 +20,12 @@ const
 
   SECTION_NAME = "VDEXTRA"
 
-  ## The panel ships seven tabs; a container holding at least this many buttons is the nav
-  ## rather than some other row of controls.
+  ## The nav is the one container whose children are *all* buttons. Matching on "holds at least
+  ## four buttons" instead picked the bottom bar first - a Grid of 6 children, 4 of them buttons
+  ## - and appending a child a Grid has no strip data for aborts the game thread inside
+  ## Grid.RebuildMeasureCacheData.
   MIN_NAV_ENTRIES = 4
-  NAV_SEARCH_DEPTH = 6
+  NAV_SEARCH_DEPTH = 8
 
 type
   GetObjFn = proc(self: pointer): pointer {.cdecl, gcsafe.}
@@ -35,7 +38,7 @@ type
   SectionFeature* = ref object of Feature
     enabled*: Atomic[bool]
 
-    offGridMain, offDepProps, offRenderer: int
+    offGridMain, offRenderer: int
     offPressed, offNotPressed, offMouseOver: int
     buttonClass, textClass: MonoClass
     getVisualChildren: GetObjFn
@@ -49,10 +52,7 @@ type
 
 var sectionFeature* = SectionFeature(name: "vdextra section")
 
-## Off while the last piece is missing. Adding the entry and adopting the renderer and sprites
-## both work; the draw still throws KeyNotFoundException keyed on the Button, because VD holds a
-## per-element map built while it constructs the UI and our control was never registered in it.
-sectionFeature.enabled.store(false)
+sectionFeature.enabled.store(true)
 
 const
   LIST_ITEMS = 16
@@ -102,23 +102,25 @@ proc isButton(o: pointer): bool =
   false
 
 ## Identified by structure, not by size: nothing has been measured yet at LoadContent, so every
-## render width here still reads zero. The nav is simply the container holding a button per tab.
-proc findNavStack(el: pointer, depth: int): pointer =
+## render width still reads zero here. The whole tree is searched and the best match kept rather
+## than the first, because the first container holding several buttons is the bottom bar.
+proc findNavStack(el: pointer, depth: int, best: var pointer, bestCount: var int) =
   let f = sectionFeature
-  if el == nil or depth > NAV_SEARCH_DEPTH: return nil
+  if el == nil or depth > NAV_SEARCH_DEPTH: return
   let kids = f.getVisualChildren(el)
   let n = childCount(kids)
-  if n <= 0 or n > 512: return nil
+  if n <= 0 or n > 512: return
 
   var buttons = 0
   for i in 0 ..< n:
     if isButton(childAt(kids, i)): inc buttons
-  if buttons >= MIN_NAV_ENTRIES: return el
+  # Every child a button, and enough of them: that is the tab list and nothing else.
+  if buttons == n and buttons >= MIN_NAV_ENTRIES and buttons > bestCount:
+    best = el
+    bestCount = buttons
 
   for i in 0 ..< n:
-    let hit = findNavStack(childAt(kids, i), depth + 1)
-    if hit != nil: return hit
-  nil
+    findNavStack(childAt(kids, i), depth + 1, best, bestCount)
 
 ## mono_object_new allocates the object but runs none of the wiring VD's deserialiser does.
 ## The gap that matters is Renderer: it is null on a fresh control, and the game thread aborts
@@ -154,9 +156,6 @@ proc buildEntry(model: pointer): pointer =
       if font != nil: f.setFont(label, font)
     if f.getTextSize != nil and f.setTextSize != nil:
       f.setTextSize(label, f.getTextSize(modelText))
-  if f.offDepProps >= 0:
-    writePtrAt(btn, f.offDepProps, readPtrAt(model, f.offDepProps))
-
   f.setContent(btn, label)
   btn
 
@@ -168,14 +167,15 @@ proc onPanelLoaded(self: pointer) {.nimcall.} =
     logI("section: no _gridMain at LoadContent exit")
     return
 
-  let stack = findNavStack(gridMain, 0)
+  var stack: pointer = nil
+  var stackCount = 0
+  findNavStack(gridMain, 0, stack, stackCount)
   if stack == nil:
     logI("section: nav stack not found")
     return
   f.applied = true
 
   let entries = f.getVisualChildren(stack)
-  let existing = childCount(entries)
   let model = childAt(entries, 0)
   if model == nil:
     logI("section: nav has no entry to copy")
@@ -192,7 +192,7 @@ proc onPanelLoaded(self: pointer) {.nimcall.} =
     return
 
   add(entries, entry)
-  logI("section: added " & SECTION_NAME & " after " & $existing & " existing entry(ies)")
+  logI("section: added " & SECTION_NAME & " to a " & $stackCount & "-entry nav")
 
 method install*(f: SectionFeature): bool =
   if not f.enabled.load():
@@ -210,7 +210,6 @@ method install*(f: SectionFeature): bool =
     return false
 
   f.offGridMain = fieldOffset(cp, "_gridMain")
-  f.offDepProps = fieldOffset(ui, "<DependencyProperties>k__BackingField")
   f.offRenderer = fieldOffset(ui, "Renderer")
   f.offPressed = fieldOffset(f.buttonClass, "pressedImage")
   f.offNotPressed = fieldOffset(f.buttonClass, "notPressedImage")
