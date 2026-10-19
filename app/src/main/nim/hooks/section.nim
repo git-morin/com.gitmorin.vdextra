@@ -36,6 +36,8 @@ const
 
 type
   GetBoolFn = proc(self: pointer): bool {.cdecl, gcsafe.}
+  SetI32Fn = proc(self: pointer, v: int32) {.cdecl, gcsafe.}
+  VoidFn1 = proc(self: pointer) {.cdecl, gcsafe.}
   GetObjFn = proc(self: pointer): pointer {.cdecl, gcsafe.}
   SetObjFn = proc(self: pointer, v: pointer) {.cdecl, gcsafe.}
   AddFn = proc(self: pointer, item: pointer) {.cdecl, gcsafe.}
@@ -46,10 +48,12 @@ type
   SectionFeature* = ref object of Feature
     enabled*: Atomic[bool]
     getPressed: GetBoolFn
+    setClickMode: SetI32Fn
+    invalidateMeasure: VoidFn1
     entry: pointer ## our nav button, pinned
     wasPressed: bool
 
-    offGridMain, offRenderer, offFont, offLayoutCtx: int
+    offGridMain, offRenderer, offFont, offLayoutCtx, offParent: int
     offPressed, offNotPressed, offMouseOver: int
     buttonClass, textClass: MonoClass
     getVisualChildren: GetObjFn
@@ -168,6 +172,10 @@ proc buildEntry(model: pointer): pointer =
     adoptFrom(label, modelText, [f.offRenderer, f.offFont, f.offLayoutCtx])
     if f.getTextSize != nil and f.setTextSize != nil:
       f.setTextSize(label, f.getTextSize(modelText))
+  # ClickMode 0 is what VD's own entries use; a fresh Button defaults to 1 and would react on
+  # release rather than press, which get_IsPressed never shows.
+  if f.setClickMode != nil: f.setClickMode(btn, 0'i32)
+
   f.setContent(btn, label)
   btn
 
@@ -245,6 +253,18 @@ proc onPanelLoaded(self: pointer) {.nimcall.} =
   else:
     add(entries, entry)
     f.entry = entry
+
+    # The entry is added at the end of LoadContent, after the pass that sized the nav, so it
+    # measures 0x0 - invisible to layout and with no area to hit. Invalidating the stack and
+    # its ancestors puts it into the next measure instead.
+    if f.invalidateMeasure != nil:
+      f.invalidateMeasure(entry)
+      f.invalidateMeasure(stack)
+      var up = stack
+      for _ in 0 ..< NAV_SEARCH_DEPTH:
+        up = readPtrAt(up, f.offParent)
+        if up == nil: break
+        f.invalidateMeasure(up)
     logI("section: added " & SECTION_NAME & " to a " & $stackCount & "-entry nav")
 
 method install*(f: SectionFeature): bool =
@@ -266,6 +286,7 @@ method install*(f: SectionFeature): bool =
   f.offRenderer = fieldOffset(ui, "Renderer")
   f.offFont = fieldOffset(f.textClass, "font")
   f.offLayoutCtx = fieldOffset(ui, "layoutingContext")
+  f.offParent = fieldOffset(ui, "<Parent>k__BackingField")
   f.offPressed = fieldOffset(f.buttonClass, "pressedImage")
   f.offNotPressed = fieldOffset(f.buttonClass, "notPressedImage")
   f.offMouseOver = fieldOffset(f.buttonClass, "mouseOverImage")
@@ -290,6 +311,8 @@ method install*(f: SectionFeature): bool =
     logE("section: ButtonBase not found, the entry would not be clickable")
     return false
   f.getPressed = cast[GetBoolFn](methodAddr(buttonBase, "get_IsPressed", 0))
+  f.setClickMode = cast[SetI32Fn](methodAddr(buttonBase, "set_ClickMode", 1))
+  f.invalidateMeasure = cast[VoidFn1](methodAddr(ui, "InvalidateMeasure", 0))
   if f.getPressed == nil:
     logE("section: ButtonBase::get_IsPressed not resolvable")
     return false
