@@ -419,6 +419,15 @@ proc arrayAt*(arr: pointer, i: int): pointer =
   if arr == nil: return nil
   cast[ptr pointer](cast[uint64](arr) + uint64(ARRAY_DATA + i * 8))[]
 
+## Xenko's Thickness stores its edges in this order, which is NOT the CSS one. Read from
+## metadata (Bottom@16 Left@20 Right@24 Top@28, minus the 16-byte header): assuming
+## left/top/right/bottom silently edits the wrong edge and looks almost right.
+const
+  THICKNESS_BOTTOM* = 0
+  THICKNESS_LEFT* = 1
+  THICKNESS_RIGHT* = 2
+  THICKNESS_TOP* = 3
+
 proc staticObject*(c: MonoClass, name: string): MonoObject =
   ## Reads a reference-typed static field, initialising the class so the slot is populated.
   if c == nil or pClassVtable == nil or pRuntimeClassInit == nil or

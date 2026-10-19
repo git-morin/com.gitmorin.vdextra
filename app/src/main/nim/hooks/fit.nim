@@ -34,10 +34,10 @@ const
   ## rows lead with no top margin at all.
   ROW_TRIM = 4'f32
 
-  ## Thickness is six floats: left, top, right, bottom, front, back.
-  M_LEFT = 0
-  M_TOP = 1
-  M_BOTTOM = 3
+  ## Edge order comes from mono.nim; Xenko's Thickness is not ordered left/top/right/bottom.
+  M_LEFT = THICKNESS_LEFT
+  M_TOP = THICKNESS_TOP
+  M_BOTTOM = THICKNESS_BOTTOM
 
 type
   GetObjFn = proc(self: pointer): pointer {.cdecl, gcsafe.}

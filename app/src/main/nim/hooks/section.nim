@@ -226,8 +226,8 @@ proc placeInPage(el: pointer, top: float) =
   if f.setVAlign != nil: f.setVAlign(el, ALIGN_TOP)
   if f.offMargin < 0: return
   let m = cast[ptr UncheckedArray[float32]](cast[uint64](el) + uint64(f.offMargin))
-  m[0] = float32(PAGE_INSET)
-  m[1] = float32(top)
+  m[THICKNESS_LEFT] = float32(PAGE_INSET)
+  m[THICKNESS_TOP] = float32(top)
 
 proc copyBackground(fresh, model: pointer) =
   if fresh == nil or model == nil: return
