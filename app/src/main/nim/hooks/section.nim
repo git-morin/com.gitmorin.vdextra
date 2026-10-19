@@ -42,6 +42,9 @@ const
   VISIBILITY_VISIBLE = 0'i32
   VISIBILITY_HIDDEN = 1'i32
 
+  ## A sanity bound on the tab array before it is walked.
+  MAX_TABS = 64
+
   ## The cell every tab grid occupies in VD's root layout.
   TAB_ROW = 1
   TAB_COLUMN = 1
@@ -311,56 +314,61 @@ proc buildContent(modelGrid, modelText: pointer): pointer =
   if f.setVisibility != nil: f.setVisibility(grid, VISIBILITY_HIDDEN)
   grid
 
-## Shows our tab and hides VD's, or steps aside when VD has switched to one of its own.
-proc syncContent(self: pointer) =
+## VD drives tab changes from a settings event rather than from the button, so the only way to
+## learn it has switched away from us is to watch one of its own tabs become visible again.
+proc anyVdTabVisible(self: pointer): bool =
   let f = sectionFeature
-  if f.content == nil or f.setVisibility == nil or f.getVisibility == nil: return
   let tabs = readPtrAt(self, f.offTabPanels)
-  if tabs == nil: return
+  if tabs == nil: return false
   let count = childCount(tabs)
-  if count <= 0 or count > 64: return
-
-  var vdVisible = false
+  if count <= 0 or count > MAX_TABS: return false
   for i in 0 ..< count:
     let tab = arrayAt(tabs, i)
     if tab == nil: continue
     let grid = readPtrAt(tab, f.offPanelGrid)
-    if grid == nil: continue
-    if f.showing:
-      # Ours is up, so nothing of VD's should be.
-      if f.getVisibility(grid) == VISIBILITY_VISIBLE:
-        f.setVisibility(grid, VISIBILITY_HIDDEN)
-    elif f.getVisibility(grid) == VISIBILITY_VISIBLE:
-      vdVisible = true
+    if grid != nil and f.getVisibility(grid) == VISIBILITY_VISIBLE: return true
+  false
 
-  if f.showing and vdVisible: discard
-  f.setVisibility(f.content, if f.showing: VISIBILITY_VISIBLE else: VISIBILITY_HIDDEN)
+## Shows our page and hides VD's, or the reverse. Exactly one tab is visible at a time, which is
+## the same invariant VD maintains for its own.
+proc syncContent(self: pointer) =
+  let f = sectionFeature
+  if f.content == nil or f.setVisibility == nil or f.getVisibility == nil: return
+  if not f.showing:
+    f.setVisibility(f.content, VISIBILITY_HIDDEN)
+    return
+
+  let tabs = readPtrAt(self, f.offTabPanels)
+  if tabs == nil: return
+  let count = childCount(tabs)
+  if count <= 0 or count > MAX_TABS: return
+  for i in 0 ..< count:
+    let tab = arrayAt(tabs, i)
+    if tab == nil: continue
+    let grid = readPtrAt(tab, f.offPanelGrid)
+    if grid != nil and f.getVisibility(grid) == VISIBILITY_VISIBLE:
+      f.setVisibility(grid, VISIBILITY_HIDDEN)
+  f.setVisibility(f.content, VISIBILITY_VISIBLE)
 
 ## The press is read from our own button each frame rather than hooked. Detouring OnClick
 ## reached every button in the panel - it is inherited from ButtonBase - and a bad trampoline
 ## there took VD's whole navigation down with SIGILL. Polling touches nothing but our entry.
 proc pollEntry(self: pointer) {.nimcall.} =
   let f = sectionFeature
-  if f.entry == nil or f.getPressed == nil: return
+  if f.entry == nil or f.getPressed == nil or f.getVisibility == nil: return
+
+  # Checked before our own click is handled: on the frame we are selected, VD's tab is still
+  # visible because syncContent has not run yet, and testing first would cancel the selection
+  # immediately.
+  if f.showing and anyVdTabVisible(self):
+    f.showing = false
+
   let pressed = f.getPressed(f.entry)
   if pressed and not f.wasPressed:
     f.showing = true
     logI("section: " & SECTION_NAME & " selected")
   f.wasPressed = pressed
 
-  # VD drives tab changes from a settings event, not from the button, so the only way to learn
-  # it has switched away is to watch one of its own tabs become visible again.
-  if f.showing and f.content != nil and f.getVisibility != nil:
-    let tabs = readPtrAt(self, f.offTabPanels)
-    if tabs != nil:
-      let count = childCount(tabs)
-      for i in 0 ..< min(count, 64):
-        let tab = arrayAt(tabs, i)
-        if tab == nil: continue
-        let grid = readPtrAt(tab, f.offPanelGrid)
-        if grid != nil and f.getVisibility(grid) == VISIBILITY_VISIBLE:
-          f.showing = false
-          break
   syncContent(self)
 
 proc onPanelLoaded(self: pointer) {.nimcall.} =
