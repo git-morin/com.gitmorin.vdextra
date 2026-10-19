@@ -27,6 +27,12 @@ const
   MIN_NAV_ENTRIES = 4
   NAV_SEARCH_DEPTH = 8
 
+  ## Builds the entry and reports what is still unset, without attaching it. Inserting a control
+  ## that is missing something aborts the game thread, and the stack only ever names the first
+  ## thing that was missing - this names them all in one run.
+  DRY_RUN = true
+  REPORT_FIELDS = 24
+
 type
   GetObjFn = proc(self: pointer): pointer {.cdecl, gcsafe.}
   SetObjFn = proc(self: pointer, v: pointer) {.cdecl, gcsafe.}
@@ -157,6 +163,25 @@ proc buildEntry(model: pointer): pointer =
   f.setContent(btn, label)
   btn
 
+## Lists the reference fields set on `model` but still null on `fresh`, which is exactly the set
+## that must be adopted for a constructed control to survive a draw.
+proc reportGaps(fresh, model: pointer, label: string) =
+  if fresh == nil or model == nil or pClassGetFields == nil: return
+  var cls = classOf(model)
+  var shown = 0
+  for _ in 0 ..< 8:
+    if cls == nil or shown >= REPORT_FIELDS: break
+    var iter: pointer = nil
+    while shown < REPORT_FIELDS:
+      let fld = pClassGetFields(cls, addr iter)
+      if fld == nil: break
+      if not fieldIsInstanceRef(fld): continue
+      let off = pFieldGetOffset(fld)
+      if readPtrAt(model, off) != nil and readPtrAt(fresh, off) == nil:
+        logI("section:   " & label & " null: " & nameOf(fld, pFieldGetName) & " @" & $off)
+        inc shown
+    cls = pClassGetParent(cls)
+
 proc onPanelLoaded(self: pointer) {.nimcall.} =
   let f = sectionFeature
   if not f.enabled.load() or f.applied or self == nil: return
@@ -189,8 +214,18 @@ proc onPanelLoaded(self: pointer) {.nimcall.} =
     logE("section: could not build the entry")
     return
 
-  add(entries, entry)
-  logI("section: added " & SECTION_NAME & " to a " & $stackCount & "-entry nav")
+  let modelText = firstTextBlock(model, 0)
+  let entryText = firstTextBlock(entry, 0)
+  reportGaps(entry, model, "button")
+  if entryText != nil and modelText != nil:
+    reportGaps(entryText, modelText, "label")
+
+  when DRY_RUN:
+    logI("section: dry run, " & SECTION_NAME & " built but not attached to the " &
+         $stackCount & "-entry nav")
+  else:
+    add(entries, entry)
+    logI("section: added " & SECTION_NAME & " to a " & $stackCount & "-entry nav")
 
 method install*(f: SectionFeature): bool =
   if not f.enabled.load():

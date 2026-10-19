@@ -312,7 +312,7 @@ proc isFontClass*(o: MonoObject): bool =
 
 const FIELD_STATIC = 0x0010'u32
 
-proc nameOf(p: pointer, get: GetNameFn): string =
+proc nameOf*(p: pointer, get: GetNameFn): string =
   if p == nil or get == nil: return "?"
   let c = get(p)
   if c == nil: "?" else: $c
