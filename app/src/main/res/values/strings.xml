@@ -84,9 +84,9 @@
     <string name="about_source">Source code</string>
     <string name="about_author">Maintainer</string>
     <string name="about_credit_title">Based on</string>
-    <string name="about_credit">The original design and native hook implementation are the work of ghitori, from vdplus. VDExtra is an independent continuation of that work.</string>
+    <string name="about_credit">Inspired from VDPlus. VDExtra is an independent continuation of that work.</string>
     <string name="about_music_title">Background music</string>
-    <string name="about_music">The default music source is Nightwave Plaza, an independent online radio, streamed from their server. With thanks to potatoru, whose Nightwave Plaza application is MIT licensed. The music it broadcasts belongs to its respective rights holders.</string>
+    <string name="about_music">The default music source is Nightwave Plaza. The music it broadcasts belongs to its respective rights holders.</string>
     <string name="about_license_title">Licence</string>
-    <string name="about_license">MIT. Provided as is, without warranty. Not affiliated with or endorsed by Virtual Desktop, Inc.</string>
+    <string name="about_license">MIT. Not affiliated with or endorsed by Virtual Desktop, Inc.</string>
 </resources>
