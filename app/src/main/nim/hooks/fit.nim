@@ -29,6 +29,11 @@ const
   WRAP_MIN_CHARS = 28
   WALK_DEPTH = 6
 
+  ## Wrapping buys correctness but costs height: with it on, the left column measured 980 in the
+  ## 920 it is given, because a few descriptions legitimately gained a line. 14 rows share that
+  ## 60px shortfall, so this pays for it out of row spacing rather than out of the translations.
+  ROW_TRIM = 5'f32
+
   ## Thickness is six floats: left, top, right, bottom, front, back.
   M_LEFT = 0
   M_TOP = 1
@@ -116,6 +121,22 @@ proc padEdges(col: pointer): float32 =
   setMarginAt(col, M_LEFT, want)
   setMarginAt(col, M_TOP, want)
 
+## Takes `ROW_TRIM` off each row's leading gap, never below zero. Rows whose gap is already
+## smaller give what they have rather than being pushed into their neighbour.
+proc trimRows(col: pointer): float32 =
+  let f = fitFeature
+  let kids = f.getChildren(col)
+  let n = childCount(kids)
+  if n <= 0 or n > 512: return 0'f32
+  for i in 0 ..< n:
+    let row = childAt(kids, i)
+    if row == nil: continue
+    let t = marginAt(row, M_TOP)
+    if t <= 0'f32: continue
+    let take = min(t, ROW_TRIM)
+    setMarginAt(row, M_TOP, t - take)
+    result += take
+
 proc isTextBlock(o: pointer): bool =
   let target = fitFeature.textBlockClass
   if o == nil or target == nil or pClassGetParent == nil: return false
@@ -193,10 +214,12 @@ proc hookLoadContent(self: pointer) {.cdecl.} =
       enableWrap(col, 0)
       let fromBottom = reclaim(col)
       let fromTop = padEdges(col)
-      reclaimed += fromBottom + fromTop
+      let fromRows = trimRows(col)
+      reclaimed += fromBottom + fromTop + fromRows
       logI("fit:   col[" & $i & "] rows=" & $rows & " reclaimed " &
            formatFloat(fromBottom, ffDecimal, 0) & "px bottom + " &
-           formatFloat(fromTop, ffDecimal, 0) & "px top, now " & describe(col))
+           formatFloat(fromTop, ffDecimal, 0) & "px top + " &
+           formatFloat(fromRows, ffDecimal, 0) & "px rows, now " & describe(col))
 
     logI("fit: reclaimed " & formatFloat(reclaimed, ffDecimal, 0) &
          "px against a " & formatFloat(CELL_HEIGHT, ffDecimal, 0) & "px cell, wrapped " &
