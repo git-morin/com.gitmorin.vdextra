@@ -48,7 +48,10 @@ type
 
 var sectionFeature* = SectionFeature(name: "vdextra section")
 
-sectionFeature.enabled.store(true)
+## Off: a Button built with mono_object_new is missing the sprites and template VD's own
+## construction gives it, and the game thread aborts (SIGABRT) once layout touches it. Adding
+## the entry succeeds; using it is what fails. See the note in the feasibility findings.
+sectionFeature.enabled.store(false)
 
 const
   LIST_ITEMS = 16
