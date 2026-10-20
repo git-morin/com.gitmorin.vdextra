@@ -149,7 +149,7 @@ type
     getVisualChildren: GetObjFn
     getChildren: GetObjFn
     setText: SetStrFn
-    clone: GetObjFn ## UICloner.Clone - static, one UIElement in, a deep copy out
+    cloneMethod: MonoMethod ## UICloner.Clone - static, one UIElement in, a deep copy out
     applied: bool
 
 var sectionFeature* = SectionFeature(name: "vdextra section")
@@ -311,10 +311,21 @@ proc inactiveTextColor(entries: pointer, count: int): uint32 =
 ## Nothing has to be adopted afterwards. RendererManager assigns a Renderer per element during
 ## the render walk, and LayoutingContext propagates from the parent the moment the clone is
 ## added to Panel.Children - the two fields a constructed control had to borrow.
+## Invoked through mono_runtime_invoke rather than as a compiled thunk so that a throw comes
+## back as an exception object instead of unwinding into native frames and aborting the game.
+## Clone serialises an arbitrary object graph, so it is the one call here that can fail on
+## something VD authored rather than on a mistake of ours.
 proc cloneOf(model: pointer): pointer =
   let f = sectionFeature
-  if model == nil or f.clone == nil: return nil
-  result = f.clone(model)
+  if model == nil or f.cloneMethod == nil or pRuntimeInvoke == nil: return nil
+  var args: array[1, pointer]
+  args[0] = model
+  var exc: MonoObject = nil
+  result = pRuntimeInvoke(f.cloneMethod, nil,
+                          cast[ptr UncheckedArray[pointer]](addr args[0]), addr exc)
+  if exc != nil:
+    logE("section: clone of a " & objClassName(model) & " threw " & objClassName(exc))
+    return nil
   if result != nil: discard pin(result)
 
 proc setLabel(label: pointer, caption: string) =
@@ -716,8 +727,9 @@ method install*(f: SectionFeature): bool =
     logE("section: a row model class is missing; the page will have no rows")
 
   let cloner = getClass(UI_CLONER)
-  if cloner != nil: f.clone = cast[GetObjFn](methodAddr(cloner, "Clone", 1))
-  if f.clone == nil:
+  if cloner != nil and pClassGetMethod != nil:
+    f.cloneMethod = pClassGetMethod(cloner, "Clone", 1)
+  if f.cloneMethod == nil:
     logE("section: UICloner::Clone not resolvable, nothing can be cloned")
     return false
 
