@@ -298,6 +298,7 @@ proc makeButton(model: pointer, caption: string, height: float): pointer =
   discard pin(btn)
   adoptFrom(btn, model, [f.offRenderer, f.offPressed, f.offNotPressed, f.offMouseOver,
                          f.offLayoutCtx])
+  copyBackground(btn, model)
 
   let label = makeLabel(firstTextBlock(model, 0), caption)
   if label == nil: return nil
@@ -579,6 +580,12 @@ proc onPanelLoaded(self: pointer) {.nimcall.} =
       let modelText = firstTextBlock(model, 0)
       var chromed: pointer = nil
       findChromedButton(gridMain, 0, chromed)
+      if chromed != nil:
+        logI("section: page button modelled on a " &
+             $int(readF32At(chromed, F_RENDER_WIDTH)) & "x" &
+             $int(readF32At(chromed, F_RENDER_WIDTH + 4)) & " button")
+      else:
+        logI("section: no chromed model button found, page button will be bare text")
       let content = buildContent(modelGrid, modelText,
                                  if chromed != nil: chromed else: model)
       if content == nil:
