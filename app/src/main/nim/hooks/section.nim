@@ -78,6 +78,12 @@ const
   ## section header is one flush with the column's edge. The indent is what tells them apart.
   NOTE_INDENT = 40.0
 
+  ## Our rows are cloned from templates the fit pass has already trimmed, so they arrive with
+  ## almost no spacing and a description ends up touching the row beneath it. This is the gap
+  ## each row is guaranteed, raised to rather than added, so a row that already has room keeps
+  ## what it was given.
+  ROW_GAP = 8.0'f32
+
   ## What VD paints an enabled button's caption (UIColors.ButtonTextColor, 160/160/160). A
   ## template cloned from a row VD had disabled carries the dark grey instead, which is what
   ## made every button on the page look dead.
@@ -358,6 +364,29 @@ proc rememberButton(row: pointer, caption: string) =
   f.pageButtonNames[f.pageButtonCount] = caption
   inc f.pageButtonCount
 
+proc marginAt(el: pointer, edge: int): float32 =
+  let f = sectionFeature
+  if el == nil or f.offMargin < 0: return 0'f32
+  cast[ptr float32](cast[uint64](el) + uint64(f.offMargin + edge * 4))[]
+
+proc setMarginAt(el: pointer, edge: int, v: float32) =
+  let f = sectionFeature
+  if el == nil or f.offMargin < 0: return
+  cast[ptr float32](cast[uint64](el) + uint64(f.offMargin + edge * 4))[] = v
+
+proc marginLeft(el: pointer): float32 =
+  marginAt(el, THICKNESS_LEFT)
+
+## VD's button rows sit indented beneath the control they belong to, so a button cloned out of
+## one and stood on its own lands out of line with the toggles. Both edges are settled here:
+## the indent is matched to the toggle template, and every row is given room to breathe.
+proc spaceRow(row: pointer, kind: RowKind) =
+  let f = sectionFeature
+  if marginAt(row, THICKNESS_BOTTOM) < ROW_GAP:
+    setMarginAt(row, THICKNESS_BOTTOM, ROW_GAP)
+  if kind == rkButton and f.toggleModel != nil:
+    setMarginAt(row, THICKNESS_LEFT, marginLeft(f.toggleModel))
+
 proc buildRow(kind: RowKind, text: string): pointer =
   let f = sectionFeature
   let model = case kind
@@ -373,6 +402,7 @@ proc buildRow(kind: RowKind, text: string): pointer =
   # reads a setting yet, so what it shows is VD's value and not ours.
   if f.setVisibility != nil: f.setVisibility(result, VISIBILITY_VISIBLE)
   enableRow(result)
+  spaceRow(result, kind)
   retextRow(result, text)
   if kind == rkButton: rememberButton(result, text)
 
@@ -461,11 +491,6 @@ iterator settingsRows(grid: pointer): pointer =
             let row = childAt(rows, j)
             if row != nil and f.getVisibility(row) == VISIBILITY_VISIBLE:
               yield row
-
-proc marginLeft(el: pointer): float32 =
-  let f = sectionFeature
-  if el == nil or f.offMargin < 0: return 0'f32
-  cast[ptr float32](cast[uint64](el) + uint64(f.offMargin + THICKNESS_LEFT * 4))[]
 
 ## The first row holding a `cls` control. A row is the unit VD's asset styles, so cloning one
 ## brings its label, its spacing and its chrome along together - which is what makes our page
