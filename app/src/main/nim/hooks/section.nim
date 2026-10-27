@@ -22,6 +22,9 @@ const
   BUTTON_BASE = "Xenko.UI.Controls.ButtonBase, Xenko.UI"
   TEXT_BLOCK = "Xenko.UI.Controls.TextBlock, Xenko.UI"
   CHECK_BOX = "Xenko.UI.Controls.CheckBox, Xenko.UI"
+  GAME_SYSTEM = "VirtualDesktop.Mobile.GameSystem, VirtualDesktop.Mobile"
+  VD_GAME = "VirtualDesktop.Mobile.Game, VirtualDesktop.Mobile"
+  SOUND_SYSTEM = "VirtualDesktop.Mobile.SoundSystem, VirtualDesktop.Mobile"
   SLIDER = "Xenko.UI.Controls.Slider, Xenko.UI"
   UI_CLONER = "Xenko.Engine.Design.UICloner, Xenko.UI"
 
@@ -47,6 +50,10 @@ const
   VISIBILITY_VISIBLE = 0'i32
   VISIBILITY_HIDDEN = 1'i32
   VISIBILITY_COLLAPSED = 2'i32
+
+  ## Xenko reports no hover as MouseOverState.MouseOverNone; anything else is over the element
+  ## or one of its children, and VD treats both the same way.
+  MOUSE_OVER_NONE = 0'i32
 
   ## A sanity bound on the tab array before it is walked.
   MAX_TABS = 64
@@ -135,13 +142,17 @@ type
     containerGetItem: GetObj2Fn
     gridBaseClass: MonoClass
     rowKey, columnKey: MonoObject
-    offDepProps, offPanelGrid, offTabPanels: int
+    offDepProps, offPanelGrid, offTabPanels, offCurrentTab: int
     offForceDrawAll: int
     content: pointer ## our tab's grid, pinned
     showing, wasShowing: bool
     redrawFrames: int
     entry: pointer ## our nav button, pinned
     wasPressed: bool
+    wasOver: bool
+    getMouseOver: GetI32Fn
+    playClick, playMouseOver: VoidFn
+    offGame, offSound: int
 
     offGridMain: int
     buttonClass, textClass: MonoClass
@@ -574,6 +585,30 @@ proc buildContent(settings: pointer): pointer =
   if f.setVisibility != nil: f.setVisibility(page, VISIBILITY_HIDDEN)
   page
 
+## VD plays both of the nav's sounds from handlers a clone does not carry: PlayClick from
+## LeftPanel.OnTabButtonClick, PlayMouseOver from UIPanel.OnElementMouseOverStateChanged. The
+## sound system is reached through the panel rather than cached, since two pointer reads cost
+## nothing and a cached one would have to be pinned against a moving collector.
+proc playCue(self: pointer, cue: VoidFn) =
+  let f = sectionFeature
+  if cue == nil or f.offGame < 0 or f.offSound < 0: return
+  let game = readPtrAt(self, f.offGame)
+  if game == nil: return
+  let sound = readPtrAt(game, f.offSound)
+  if sound != nil: cue(sound)
+
+## True while the user is pressing one of VD's own nav entries. Watching for this is what lets
+## us step aside even when VD itself will do nothing - see standDown.
+proc vdEntryPressed(): bool =
+  let f = sectionFeature
+  if f.navEntries == nil or f.getPressed == nil: return false
+  let n = childCount(f.navEntries)
+  if n <= 0 or n > MAX_TABS: return false
+  for i in 0 ..< n:
+    let btn = childAt(f.navEntries, i)
+    if btn != nil and btn != f.entry and f.getPressed(btn): return true
+  false
+
 ## VD drives tab changes from a settings event rather than from the button, so the only way to
 ## learn it has switched away from us is to watch one of its own tabs become visible again.
 proc anyVdTabVisible(self: pointer): bool =
@@ -605,10 +640,28 @@ proc syncNavHighlight() =
     let text = firstTextBlock(btn, 0)
     if text == nil: continue
     if btn == f.entry:
-      setTextColorAt(text, if f.showing: f.activeColor else: f.inactiveColor)
+      # VD lights an entry white for either reason - selected, or merely hovered - and ours is
+      # outside the loop that does it, so both cases are driven here.
+      setTextColorAt(text, if f.showing or f.wasOver: f.activeColor else: f.inactiveColor)
     elif f.showing:
       # Ours owns the page, so nothing of VD's should look selected.
       setTextColorAt(text, f.inactiveColor)
+
+## Hands the panel back to VD.
+##
+## Simply clearing the flag is not enough. OnSelectedTabChanged is the only thing that ever
+## makes a tab grid visible, and it runs only when SelectedTab actually *changes* - so picking
+## the tab that was open before ours raises no event, and the page VD believes is up stays
+## hidden behind ours. Whichever tab VD still considers current is shown explicitly here.
+proc standDown(self: pointer) =
+  let f = sectionFeature
+  if not f.showing: return
+  f.showing = false
+  if f.offCurrentTab < 0 or f.setVisibility == nil: return
+  let tab = readPtrAt(self, f.offCurrentTab)
+  if tab == nil: return
+  let grid = readPtrAt(tab, f.offPanelGrid)
+  if grid != nil: f.setVisibility(grid, VISIBILITY_VISIBLE)
 
 proc syncContent(self: pointer) =
   let f = sectionFeature
@@ -650,10 +703,17 @@ proc pollEntry(self: pointer) {.nimcall.} =
   # immediately.
   if f.showing and anyVdTabVisible(self):
     f.showing = false
+  elif f.showing and vdEntryPressed():
+    standDown(self)
+
+  let over = f.getMouseOver != nil and f.getMouseOver(f.entry) != MOUSE_OVER_NONE
+  if over and not f.wasOver: playCue(self, f.playMouseOver)
+  f.wasOver = over
 
   let pressed = f.getPressed(f.entry)
   if pressed and not f.wasPressed:
     f.showing = true
+    playCue(self, f.playClick)
     logI("section: " & SECTION_NAME & " selected")
   f.wasPressed = pressed
 
@@ -694,7 +754,9 @@ proc onPanelLoaded(self: pointer) {.nimcall.} =
   # so an element added only to the visual tree draws but is never measured, arranged or
   # hit-tested - which is exactly 0x0 size, wrong position, and no response to clicks.
   let entries = f.getChildren(stack)
-  let model = childAt(entries, 0)
+  # Not entry zero: VD's first nav button is 89 tall against the others' 81, so a clone of it
+  # stands out by the difference. Any later one is a typical entry.
+  let model = childAt(entries, min(1, childCount(entries) - 1))
   if model == nil:
     logI("section: nav has no entry to copy")
     return
@@ -786,6 +848,20 @@ method install*(f: SectionFeature): bool =
   f.setVisibility = cast[SetI32Fn](methodAddr(ui, "set_Visibility", 1))
   f.getVisibility = cast[GetI32Fn](methodAddr(ui, "get_Visibility", 0))
   f.setEnabled = cast[SetBoolFn](methodAddr(ui, "set_IsEnabled", 1))
+  f.getMouseOver = cast[GetI32Fn](methodAddr(ui, "get_MouseOverState", 0))
+
+  let gameSystem = getClass(GAME_SYSTEM)
+  let vdGame = getClass(VD_GAME)
+  let soundSystem = getClass(SOUND_SYSTEM)
+  f.offGame = if gameSystem == nil: -1 else: fieldOffset(gameSystem, "<Game>k__BackingField")
+  f.offSound = if vdGame == nil: -1 else: fieldOffset(vdGame, "<Sound>k__BackingField")
+  if soundSystem != nil:
+    f.playClick = cast[VoidFn](methodAddr(soundSystem, "PlayClick", 0))
+    f.playMouseOver = cast[VoidFn](methodAddr(soundSystem, "PlayMouseOver", 0))
+  if f.playClick == nil or f.offGame < 0 or f.offSound < 0:
+    logE("section: sound system not reachable; the entry will be silent")
+  if f.getMouseOver == nil:
+    logE("section: MouseOverState missing; the entry will not light on hover")
   f.offMargin = fieldOffset(ui, "MarginInternal")
   if f.setEnabled == nil or f.offMargin < 0:
     logE("section: IsEnabled/margin missing; cloned buttons would stay greyed out")
@@ -793,6 +869,9 @@ method install*(f: SectionFeature): bool =
   f.offDepProps = fieldOffset(ui, "<DependencyProperties>k__BackingField")
   f.offPanelGrid = fieldOffset(getClass(UI_PANEL), "<Grid>k__BackingField")
   f.offTabPanels = fieldOffset(cp, "_tabPanels")
+  f.offCurrentTab = fieldOffset(cp, "_currentVisibleTab")
+  if f.offCurrentTab < 0:
+    logE("section: _currentVisibleTab not found; re-picking the previous tab will not work")
   f.offForceDrawAll = fieldOffset(cp, "_forceDrawAll")
 
   f.gridBaseClass = getClass(GRID_BASE)
