@@ -74,8 +74,14 @@ const
   ## A settings column is the list itself; the page's overlay grids hold a single sized child.
   MIN_COLUMN_ROWS = 2
 
-  ## Which rows go in the left column; the rest go in the right, as VD's own page is split.
-  COLUMN_SPLIT = 6
+  ## A description is a TextBlock indented under the control it belongs to (VD uses 59); a
+  ## section header is one flush with the column's edge. The indent is what tells them apart.
+  NOTE_INDENT = 40.0
+
+  ## What VD paints an enabled button's caption (UIColors.ButtonTextColor, 160/160/160). A
+  ## template cloned from a row VD had disabled carries the dark grey instead, which is what
+  ## made every button on the page look dead.
+  BUTTON_TEXT_COLOR = 0xFFA0A0A0'u32
 
 
 type
@@ -85,16 +91,19 @@ type
   SetObj2Fn = proc(self: pointer, key: pointer, value: pointer) {.cdecl, gcsafe.}
   GetObj2Fn = proc(self: pointer, key: pointer): pointer {.cdecl, gcsafe.}
   GetObjFn = proc(self: pointer): pointer {.cdecl, gcsafe.}
+  SetBoolFn = proc(self: pointer, v: bool) {.cdecl, gcsafe.}
   AddFn = proc(self: pointer, item: pointer) {.cdecl, gcsafe.}
   VoidFn = proc(self: pointer) {.cdecl, gcsafe.}
   SetStrFn = proc(self: pointer, s: MonoString) {.cdecl, gcsafe.}
 
-  ## What a row is made of, which decides both the template cloned for it and where its second
-  ## label belongs: a toggle's is the description beside it, an action's is the button caption.
+  ## VD's own row vocabulary, read off its settings page: a column is a flat list of these.
+  ## A CheckBox *is* the row and carries its own caption, so a description has to be a row of
+  ## its own - which is why our toggle descriptions had nowhere to go when every row was
+  ## assumed to hold two labels.
   RowKind = enum
-    rkToggle, rkChoice, rkSlider
+    rkHeader, rkToggle, rkNote, rkSlider, rkButton
 
-  PageRow = tuple[kind: RowKind, title, detail: string]
+  PageRow = tuple[column: int, kind: RowKind, text: string]
 
   SectionFeature* = ref object of Feature
     enabled*: Atomic[bool]
@@ -110,7 +119,9 @@ type
     pageButtonCount: int
 
     ## VD's own rows, cloned once per row we draw.
-    toggleModel, choiceModel, sliderModel: pointer
+    headerModel, toggleModel, noteModel, sliderModel, buttonModel: pointer
+    setEnabled: SetBoolFn
+    offMargin: int
     navEntries: pointer ## VD's nav collection, for the active highlight
     activeColor, inactiveColor: uint32
     getVisibility: GetI32Fn
@@ -140,26 +151,34 @@ var sectionFeature* = SectionFeature(name: "vdextra section")
 
 sectionFeature.enabled.store(true)
 
-## The module's options, in the order the page lays them out. Display only for now: the
-## captions come from the companion app's own option list and nothing is wired to a setting
-## yet, which is why no row reads or writes anything.
-const PAGE_ROWS: array[11, PageRow] = [
-  (rkToggle, "Fit long settings pages",
-   "Tighten row spacing so a translated page stops hiding its last rows"),
-  (rkSlider, "Background music volume", ""),
-  (rkChoice, "Background music", "Select"),
-  (rkToggle, "Disable performance cue sounds",
-   "Mute the cues played when streaming quality changes"),
-  (rkToggle, "Extend bitrate range",
-   "Raise the bitrate ceiling above the stock limit"),
-  (rkToggle, "Remove auto speed-test bitrate cap",
-   "Skip the bandwidth cap applied after the speed test"),
-  (rkToggle, "Force LAN discovery",
-   "Still show local PCs even when the server is unreachable"),
-  (rkChoice, "UI language", "Select"),
-  (rkChoice, "Update channel", "Select"),
-  (rkChoice, "Check for updates", "Check"),
-  (rkChoice, "Version and credits", "Show")
+## The module's options, laid out in VD's own idiom: a header, the control, and a description
+## indented under it. Display only for now - the captions come from the companion app's option
+## list and nothing is wired to a setting yet, which is why no row reads or writes anything.
+const PAGE_ROWS: array[23, PageRow] = [
+  (0, rkHeader, "VDExtra"),
+  (0, rkToggle, "Fit long settings pages"),
+  (0, rkNote, "Tighten row spacing so a translated page stops hiding its last rows"),
+  (0, rkHeader, "Sound"),
+  (0, rkSlider, "Background music volume"),
+  (0, rkButton, "Background music"),
+  (0, rkToggle, "Disable performance cue sounds"),
+  (0, rkNote, "Mute the cues played when streaming quality changes"),
+  (0, rkHeader, "About"),
+  (0, rkButton, "Version and credits"),
+
+  (1, rkHeader, "Bitrate"),
+  (1, rkToggle, "Extend bitrate range"),
+  (1, rkNote, "Raise the bitrate ceiling above the stock limit"),
+  (1, rkToggle, "Remove auto speed-test bitrate cap"),
+  (1, rkNote, "Skip the bandwidth cap applied after the speed test"),
+  (1, rkHeader, "Network"),
+  (1, rkToggle, "Force LAN discovery"),
+  (1, rkNote, "Still show local PCs even when the server is unreachable"),
+  (1, rkHeader, "Updates"),
+  (1, rkButton, "Update channel"),
+  (1, rkButton, "Check for updates"),
+  (1, rkHeader, "Language"),
+  (1, rkButton, "UI language")
 ]
 
 ## Collection members live on the instance's own generic type, so they are resolved by walking
@@ -309,21 +328,24 @@ proc collectLabels(el: pointer, depth: int,
   for i in 0 ..< c:
     collectLabels(childAt(kids, i), depth + 1, found, n)
 
-## Labels come out in tree order, which is the order the asset was authored in: the option's
-## name first, then whatever sits beside it. On a toggle row that is the description; on an
-## action row the last label is the button's own caption. A slider row's second label is its
-## value readout, so it is left for the wiring to fill in.
-proc retextRow(row: pointer, kind: RowKind, title, detail: string) =
+## Every row kind keeps its caption in its first label, read in tree order: a CheckBox's own
+## content, a slider row's title above the track, a button's caption, or - for a header or a
+## description - the row itself, which is already a TextBlock.
+proc retextRow(row: pointer, text: string) =
   var labels: array[MAX_ROW_LABELS, pointer]
   var n = 0
   collectLabels(row, 0, labels, n)
-  if n == 0: return
-  setLabel(labels[0], title)
-  if detail.len == 0 or n < 2: return
-  case kind
-  of rkToggle: setLabel(labels[1], detail)
-  of rkChoice: setLabel(labels[n - 1], detail)
-  of rkSlider: discard
+  if n > 0: setLabel(labels[0], text)
+
+## A template cloned from a row VD had disabled stays disabled - it cannot be pressed and its
+## caption keeps the dark grey. VD re-enables a control by setting both, so this does too.
+proc enableRow(row: pointer) =
+  let f = sectionFeature
+  if f.setEnabled != nil: f.setEnabled(row, true)
+  let btn = firstOfClass(row, f.buttonClass, 0)
+  if btn == nil: return
+  if f.setEnabled != nil: f.setEnabled(btn, true)
+  setTextColorAt(firstTextBlock(btn, 0), BUTTON_TEXT_COLOR)
 
 ## Keeps our own buttons so their presses can be polled. A clone carries no Click handler, and
 ## that is the only way back to it.
@@ -336,20 +358,23 @@ proc rememberButton(row: pointer, caption: string) =
   f.pageButtonNames[f.pageButtonCount] = caption
   inc f.pageButtonCount
 
-proc buildRow(kind: RowKind, title, detail: string): pointer =
+proc buildRow(kind: RowKind, text: string): pointer =
   let f = sectionFeature
   let model = case kind
+    of rkHeader: f.headerModel
     of rkToggle: f.toggleModel
-    of rkChoice: f.choiceModel
+    of rkNote: f.noteModel
     of rkSlider: f.sliderModel
+    of rkButton: f.buttonModel
   if model == nil: return nil
   result = cloneOf(model)
   if result == nil: return nil
   # The clone inherits the model's state - a ticked checkbox, a slider part-way along. Nothing
   # reads a setting yet, so what it shows is VD's value and not ours.
   if f.setVisibility != nil: f.setVisibility(result, VISIBILITY_VISIBLE)
-  retextRow(result, kind, title, detail)
-  if kind == rkChoice: rememberButton(result, title)
+  enableRow(result)
+  retextRow(result, text)
+  if kind == rkButton: rememberButton(result, text)
 
 ## The entry is a clone of one of VD's own rather than a button built to look like one, so it
 ## arrives with their padding, height, text size and sprites instead of an approximation of
@@ -419,40 +444,62 @@ proc isColumn(el: pointer): bool =
   if el == nil: return false
   childCount(f.getChildren(el)) >= MIN_COLUMN_ROWS
 
-## The first row on the settings page holding a `cls` control. A row is the unit VD's asset
-## styles, so cloning one brings its label, its description and its spacing along together -
-## which is what makes our page match theirs without a single measurement being copied.
-## Collapsed rows are skipped: SettingsTab hides the ones this headset does not support, and a
-## hidden template clones into a row that draws nothing.
-proc findRowTemplate(grid: pointer, cls: MonoClass): pointer =
+## Walks every visible row of every column on the settings page. Collapsed rows are skipped:
+## SettingsTab hides the ones this headset does not support, and a hidden template clones into
+## a row that draws nothing.
+iterator settingsRows(grid: pointer): pointer =
   let f = sectionFeature
-  if grid == nil or cls == nil: return nil
-  let cols = f.getChildren(grid)
-  let n = childCount(cols)
-  if n <= 0 or n > 512: return nil
-  for i in 0 ..< n:
-    let col = childAt(cols, i)
-    if not isColumn(col): continue
-    let rows = f.getChildren(col)
-    for j in 0 ..< childCount(rows):
-      let row = childAt(rows, j)
-      if row == nil or f.getVisibility(row) != VISIBILITY_VISIBLE: continue
-      if firstOfClass(row, cls, 0) != nil: return row
+  if grid != nil:
+    let cols = f.getChildren(grid)
+    let n = childCount(cols)
+    if n > 0 and n <= 512:
+      for i in 0 ..< n:
+        let col = childAt(cols, i)
+        if isColumn(col):
+          let rows = f.getChildren(col)
+          for j in 0 ..< childCount(rows):
+            let row = childAt(rows, j)
+            if row != nil and f.getVisibility(row) == VISIBILITY_VISIBLE:
+              yield row
+
+proc marginLeft(el: pointer): float32 =
+  let f = sectionFeature
+  if el == nil or f.offMargin < 0: return 0'f32
+  cast[ptr float32](cast[uint64](el) + uint64(f.offMargin + THICKNESS_LEFT * 4))[]
+
+## The first row holding a `cls` control. A row is the unit VD's asset styles, so cloning one
+## brings its label, its spacing and its chrome along together - which is what makes our page
+## match theirs without a single measurement being copied.
+proc findRowTemplate(grid: pointer, cls: MonoClass): pointer =
+  if cls == nil: return nil
+  for row in settingsRows(grid):
+    if firstOfClass(row, cls, 0) != nil: return row
+  nil
+
+## A bare TextBlock row is either a section header or a description, and only the indent says
+## which: VD flushes headers with the column edge and pushes descriptions in under the control
+## they explain.
+proc findTextTemplate(grid: pointer, indented: bool): pointer =
+  let f = sectionFeature
+  for row in settingsRows(grid):
+    if classOf(row) == f.textClass and (marginLeft(row) >= NOTE_INDENT) == indented:
+      return row
   nil
 
 ## Fills one emptied column with the rows assigned to it.
-proc fillColumn(col: pointer, first, last: int): int =
+proc fillColumn(col: pointer, index: int): int =
   let f = sectionFeature
   let kids = f.getChildren(col)
   let clear = resolveMethod(kids, "Clear", 0)
   let add = resolveAdd(kids)
   if clear == nil or add == nil: return 0
   cast[VoidFn](clear)(kids)
-  for i in first .. min(last, PAGE_ROWS.high):
-    let row = buildRow(PAGE_ROWS[i].kind, PAGE_ROWS[i].title, PAGE_ROWS[i].detail)
-    if row == nil: continue
-    add(kids, row)
-    inc result
+  for spec in PAGE_ROWS:
+    if spec.column == index:
+      let row = buildRow(spec.kind, spec.text)
+      if row != nil:
+        add(kids, row)
+        inc result
 
 ## Builds the tab's content as a clone of VD's own settings page with our rows in place of
 ## theirs.
@@ -465,11 +512,15 @@ proc fillColumn(col: pointer, first, last: int): int =
 proc buildContent(settings: pointer): pointer =
   let f = sectionFeature
   f.toggleModel = findRowTemplate(settings, f.checkBoxClass)
-  f.choiceModel = findRowTemplate(settings, f.buttonClass)
+  f.buttonModel = findRowTemplate(settings, f.buttonClass)
   f.sliderModel = findRowTemplate(settings, f.sliderClass)
-  logI("section: row models toggle=" & $(f.toggleModel != nil) &
-       " choice=" & $(f.choiceModel != nil) &
-       " slider=" & $(f.sliderModel != nil))
+  f.headerModel = findTextTemplate(settings, indented = false)
+  f.noteModel = findTextTemplate(settings, indented = true)
+  logI("section: models header=" & $(f.headerModel != nil) &
+       " toggle=" & $(f.toggleModel != nil) &
+       " note=" & $(f.noteModel != nil) &
+       " slider=" & $(f.sliderModel != nil) &
+       " button=" & $(f.buttonModel != nil))
 
   let page = cloneOf(settings)
   if page == nil: return nil
@@ -487,8 +538,7 @@ proc buildContent(settings: pointer): pointer =
       # An overlay of VD's, with no meaning on our page and nothing to show it.
       if f.setVisibility != nil: f.setVisibility(child, VISIBILITY_COLLAPSED)
       continue
-    filled += (if columns == 0: fillColumn(child, 0, COLUMN_SPLIT - 1)
-      else: fillColumn(child, COLUMN_SPLIT, PAGE_ROWS.high))
+    filled += fillColumn(child, columns)
     inc columns
     if columns >= 2: break
 
@@ -710,6 +760,10 @@ method install*(f: SectionFeature): bool =
   f.setClickMode = cast[SetI32Fn](methodAddr(buttonBase, "set_ClickMode", 1))
   f.setVisibility = cast[SetI32Fn](methodAddr(ui, "set_Visibility", 1))
   f.getVisibility = cast[GetI32Fn](methodAddr(ui, "get_Visibility", 0))
+  f.setEnabled = cast[SetBoolFn](methodAddr(ui, "set_IsEnabled", 1))
+  f.offMargin = fieldOffset(ui, "MarginInternal")
+  if f.setEnabled == nil or f.offMargin < 0:
+    logE("section: IsEnabled/margin missing; cloned buttons would stay greyed out")
 
   f.offDepProps = fieldOffset(ui, "<DependencyProperties>k__BackingField")
   f.offPanelGrid = fieldOffset(getClass(UI_PANEL), "<Grid>k__BackingField")
