@@ -628,6 +628,16 @@ proc anyVdTabVisible(self: pointer): bool =
 ## the same invariant VD maintains for its own.
 ## VD paints the entry for the tab it believes is active and knows nothing about ours, so both
 ## sides are driven here: exactly one entry stays lit, whoever owns the page.
+## VD's rule, from LeftPanel.UpdateTabButtonColors: an entry is white when it is the selected
+## tab *or* the pointer is over it, and grey otherwise. Repeating the hover half matters -
+## while our page owns the panel we repaint VD's entries every frame, and painting them flatly
+## grey wiped out the highlight VD had just given the one under the pointer.
+proc navColor(btn: pointer, selected: bool): uint32 =
+  let f = sectionFeature
+  if selected: return f.activeColor
+  if f.getMouseOver != nil and f.getMouseOver(btn) != MOUSE_OVER_NONE: return f.activeColor
+  f.inactiveColor
+
 proc syncNavHighlight() =
   let f = sectionFeature
   if f.navEntries == nil or f.entry == nil or
@@ -639,13 +649,12 @@ proc syncNavHighlight() =
     if btn == nil: continue
     let text = firstTextBlock(btn, 0)
     if text == nil: continue
+    # Entries VD does not know are ours are left alone unless our page owns the panel: while it
+    # does, VD still paints its own idea of which tab is selected, and this overrides it.
     if btn == f.entry:
-      # VD lights an entry white for either reason - selected, or merely hovered - and ours is
-      # outside the loop that does it, so both cases are driven here.
-      setTextColorAt(text, if f.showing or f.wasOver: f.activeColor else: f.inactiveColor)
+      setTextColorAt(text, navColor(btn, f.showing))
     elif f.showing:
-      # Ours owns the page, so nothing of VD's should look selected.
-      setTextColorAt(text, f.inactiveColor)
+      setTextColorAt(text, navColor(btn, false))
 
 ## Hands the panel back to VD.
 ##
