@@ -21,3 +21,7 @@ signing.properties
 Thumbs.db
 desktop.ini
 .tools/
+
+# pnak (Nimony package manager) outputs
+deps/
+nimony.paths

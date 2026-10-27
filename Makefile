@@ -15,6 +15,12 @@ CLANG_FORMAT_VERSION := 23.1.3
 KTLINT_VERSION := 1.8.0
 DETEKT_VERSION := 1.23.8
 TOOLS_DIR := .tools
+NIMONY_VERSION := 0.6.3
+NIMONY_DIR := $(TOOLS_DIR)/nimony-$(NIMONY_VERSION)/nimony
+NIMONY := $(NIMONY_DIR)/bin/nimony.exe
+PNAK := $(NIMONY_DIR)/bin/pnak.exe
+# --compat makes Nimony read the same nim.cfg Nim 2 uses, so the target is declared once.
+NIMONY_FLAGS := --compat --os:android --cpu:arm64
 KTLINT_JAR := $(TOOLS_DIR)/ktlint-$(KTLINT_VERSION).jar
 DETEKT_JAR := $(TOOLS_DIR)/detekt-cli-$(DETEKT_VERSION)-all.jar
 KT_SRC := app/src/main/kotlin
@@ -24,12 +30,30 @@ JAVA_BIN := $(if $(JAVA_HOME),$(subst \,/,$(JAVA_HOME))/bin/java,java)
 
 .PHONY: help help-more lint check fmt fmt-check build apk install run ship \
         connect device require-device logs logs-dump tombstones \
-        tombstones-clean clean tools kt-check kt-fmt kt-fmt-check
+        tombstones-clean clean tools kt-check kt-fmt kt-fmt-check \
+        nimony-check nimony-build deps require-nimony
 
 lint: check fmt-check kt-check kt-fmt-check ## Lint the Nim, C and Kotlin (needs no Android SDK)
 
 check: # Type-check the Nim against the real android target
 	@nim check --hints:off $(NIM_MAIN)
+
+nimony-check: require-nimony ## Type-check the same sources with Nimony (Nim 3)
+	@$(NIMONY) check $(NIMONY_FLAGS) $(NIM_MAIN)
+
+nimony-build: require-nimony # Compile with Nimony; needs an NDK clang on PATH
+	@$(NIMONY) c $(NIMONY_FLAGS) --app:lib --cc:clang $(NIM_MAIN)
+
+deps: require-nimony # Resolve the dependency closure with pnak and refresh nimony.paths
+	@$(PNAK) fetch vdextra.nimble
+
+require-nimony:
+	@test -x "$(NIMONY)" || { \
+	  echo "Nimony $(NIMONY_VERSION) not found in $(NIMONY_DIR)."; \
+	  echo "Fetch it with:"; \
+	  echo "  gh release download --repo nim-lang/nimony-website --pattern '*windows_amd64.zip' --dir $(TOOLS_DIR)"; \
+	  echo "  unzip -o $(TOOLS_DIR)/nimony-*.zip -d $(TOOLS_DIR)/nimony-$(NIMONY_VERSION)"; \
+	  exit 1; }
 
 fmt-check: # Check formatting without rewriting anything
 	@fail=0; tmp=$$(mktemp -d); \
