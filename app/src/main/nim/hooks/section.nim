@@ -16,7 +16,6 @@ const
   UI_ELEMENT = "Xenko.UI.UIElement, Xenko.UI"
   PANEL = "Xenko.UI.Panels.Panel, Xenko.UI"
   UI_PANEL = "VirtualDesktop.Mobile.UIPanel, VirtualDesktop.Mobile"
-  GRID = "Xenko.UI.Panels.Grid, Xenko.UI"
   GRID_BASE = "Xenko.UI.Panels.GridBase, Xenko.UI"
   PROPERTY_CONTAINER = "Xenko.Core.PropertyContainerClass, Xenko.Core"
   BUTTON = "Xenko.UI.Controls.Button, Xenko.UI"
@@ -24,7 +23,6 @@ const
   TEXT_BLOCK = "Xenko.UI.Controls.TextBlock, Xenko.UI"
   CHECK_BOX = "Xenko.UI.Controls.CheckBox, Xenko.UI"
   SLIDER = "Xenko.UI.Controls.Slider, Xenko.UI"
-  STACK_PANEL = "Xenko.UI.Panels.StackPanel, Xenko.UI"
   UI_CLONER = "Xenko.Engine.Design.UICloner, Xenko.UI"
 
   SECTION_NAME = "VDEXTRA"
@@ -48,6 +46,7 @@ const
   ## the content cell and simply toggles this, so a new tab is one more sibling to flip.
   VISIBILITY_VISIBLE = 0'i32
   VISIBILITY_HIDDEN = 1'i32
+  VISIBILITY_COLLAPSED = 2'i32
 
   ## A sanity bound on the tab array before it is walked.
   MAX_TABS = 64
@@ -75,21 +74,8 @@ const
   ## A settings column is the list itself; the page's overlay grids hold a single sized child.
   MIN_COLUMN_ROWS = 2
 
-  ## Our page grid has no strip definitions, so every child stretches over the whole cell.
-  ## Pinning each to the top-left and offsetting by margin is what separates them.
-  ##
-  ## The two enums are NOT ordered alike, which is worth stating because assuming they were
-  ## cost two builds: HorizontalAlignment is Left/Center/Right/Stretch, VerticalAlignment is
-  ## Bottom/Center/Top/Stretch. Both values were read from metadata, not inferred.
-  ALIGN_LEFT = 0'i32
-  ALIGN_TOP = 2'i32
-  PAGE_INSET = 40.0
-  PAGE_TOP = 20.0
-
-  ## Two columns, as VD's own settings page uses: eleven rows do not fit one 936-tall cell.
-  COLUMN_WIDTH = 450.0
-  COLUMN_GAP = 10.0
-  COLUMN_SPLIT = 6 ## rows in the left column; the rest go in the right
+  ## Which rows go in the left column; the rest go in the right, as VD's own page is split.
+  COLUMN_SPLIT = 6
 
 
 type
@@ -100,8 +86,8 @@ type
   GetObj2Fn = proc(self: pointer, key: pointer): pointer {.cdecl, gcsafe.}
   GetObjFn = proc(self: pointer): pointer {.cdecl, gcsafe.}
   AddFn = proc(self: pointer, item: pointer) {.cdecl, gcsafe.}
+  VoidFn = proc(self: pointer) {.cdecl, gcsafe.}
   SetStrFn = proc(self: pointer, s: MonoString) {.cdecl, gcsafe.}
-  SetF32Fn = proc(self: pointer, v: cfloat) {.cdecl, gcsafe.}
 
   ## What a row is made of, which decides both the template cloned for it and where its second
   ## label belongs: a toggle's is the description beside it, an action's is the button caption.
@@ -115,9 +101,6 @@ type
     getPressed: GetBoolFn
     setClickMode: SetI32Fn
     setVisibility: SetI32Fn
-    setHAlign, setVAlign: SetI32Fn
-    setWidth: SetF32Fn
-    offMargin: int
 
     ## Our page's own buttons, pinned, with the press already seen on each so holding one is
     ## reported once rather than every frame.
@@ -133,7 +116,7 @@ type
     getVisibility: GetI32Fn
     containerSetObject: SetObj2Fn
     containerGetItem: GetObj2Fn
-    gridClass, gridBaseClass: MonoClass
+    gridBaseClass: MonoClass
     rowKey, columnKey: MonoObject
     offDepProps, offPanelGrid, offTabPanels: int
     offForceDrawAll: int
@@ -143,9 +126,9 @@ type
     entry: pointer ## our nav button, pinned
     wasPressed: bool
 
-    offGridMain, offRenderer, offLayoutCtx: int
+    offGridMain: int
     buttonClass, textClass: MonoClass
-    checkBoxClass, sliderClass, stackPanelClass: MonoClass
+    checkBoxClass, sliderClass: MonoClass
     settingsTabClass: MonoClass
     getVisualChildren: GetObjFn
     getChildren: GetObjFn
@@ -179,16 +162,19 @@ const PAGE_ROWS: array[11, PageRow] = [
   (rkChoice, "Version and credits", "Show")
 ]
 
-## Add lives on the collection's own generic type, so it is resolved by walking up from the
-## instance rather than from a class name known ahead of time.
-proc resolveAdd(coll: pointer): AddFn =
+## Collection members live on the instance's own generic type, so they are resolved by walking
+## up from the instance rather than from a class name known ahead of time.
+proc resolveMethod(coll: pointer, name: string, np: int): pointer =
   var k = classOf(coll)
   for _ in 0 ..< 6:
     if k == nil: break
-    let a = methodAddr(k, "Add", 1)
-    if a != nil: return cast[AddFn](a)
+    let a = methodAddr(k, name, np)
+    if a != nil: return a
     k = pClassGetParent(k)
   nil
+
+proc resolveAdd(coll: pointer): AddFn =
+  cast[AddFn](resolveMethod(coll, "Add", 1))
 
 ## Matched on the exact class, not on inheritance: CheckBox and Button are siblings under
 ## ButtonBase rather than parent and child, so exactness is what separates a toggle row from an
@@ -239,32 +225,6 @@ proc findNavStack(el: pointer, depth: int, best: var pointer, bestCount: var int
 
   for i in 0 ..< n:
     findNavStack(childAt(kids, i), depth + 1, best, bestCount)
-
-## mono_object_new allocates the object but runs none of the wiring VD's deserialiser does.
-## The gap that matters is Renderer: it is null on a fresh control, and the game thread aborts
-## the moment a draw dereferences it. The sprites are what the button is actually painted with.
-proc adoptFrom(fresh, model: pointer, offsets: openArray[int]) =
-  for off in offsets:
-    if off < 0: continue
-    let v = readPtrAt(model, off)
-    if v != nil: writePtrAt(fresh, off, v)
-
-## Pins an element to the page's top-left and offsets it, so siblings that would otherwise
-## stretch over the whole cell end up stacked instead.
-proc placeInPage(el: pointer, left, top: float) =
-  let f = sectionFeature
-  if el == nil: return
-  if f.setHAlign != nil: f.setHAlign(el, ALIGN_LEFT)
-  if f.setVAlign != nil: f.setVAlign(el, ALIGN_TOP)
-  if f.offMargin < 0: return
-  let m = cast[ptr UncheckedArray[float32]](cast[uint64](el) + uint64(f.offMargin))
-  m[THICKNESS_LEFT] = float32(left)
-  m[THICKNESS_TOP] = float32(top)
-
-proc copyBackground(fresh, model: pointer) =
-  if fresh == nil or model == nil: return
-  let colour = cast[ptr uint32](cast[uint64](model) + uint64(BACKGROUND_COLOR_OFFSET))[]
-  cast[ptr uint32](cast[uint64](fresh) + uint64(BACKGROUND_COLOR_OFFSET))[] = colour
 
 proc textColorAt(text: pointer): uint32 =
   if text == nil: 0'u32
@@ -452,9 +412,18 @@ proc settingsGrid(self: pointer): pointer =
       return readPtrAt(tab, f.offPanelGrid)
   nil
 
+## A column holds the rows; the page's other children are overlays - the USB prompt, the colour
+## picker, the transparency panel - each a single sized child shown on demand.
+proc isColumn(el: pointer): bool =
+  let f = sectionFeature
+  if el == nil: return false
+  childCount(f.getChildren(el)) >= MIN_COLUMN_ROWS
+
 ## The first row on the settings page holding a `cls` control. A row is the unit VD's asset
 ## styles, so cloning one brings its label, its description and its spacing along together -
 ## which is what makes our page match theirs without a single measurement being copied.
+## Collapsed rows are skipped: SettingsTab hides the ones this headset does not support, and a
+## hidden template clones into a row that draws nothing.
 proc findRowTemplate(grid: pointer, cls: MonoClass): pointer =
   let f = sectionFeature
   if grid == nil or cls == nil: return nil
@@ -463,61 +432,38 @@ proc findRowTemplate(grid: pointer, cls: MonoClass): pointer =
   if n <= 0 or n > 512: return nil
   for i in 0 ..< n:
     let col = childAt(cols, i)
-    if col == nil: continue
+    if not isColumn(col): continue
     let rows = f.getChildren(col)
-    let rn = childCount(rows)
-    if rn < MIN_COLUMN_ROWS or rn > 512: continue
-    for j in 0 ..< rn:
+    for j in 0 ..< childCount(rows):
       let row = childAt(rows, j)
       if row == nil or f.getVisibility(row) != VISIBILITY_VISIBLE: continue
       if firstOfClass(row, cls, 0) != nil: return row
   nil
 
-proc firstColumn(grid: pointer): pointer =
+## Fills one emptied column with the rows assigned to it.
+proc fillColumn(col: pointer, first, last: int): int =
   let f = sectionFeature
-  if grid == nil: return nil
-  let cols = f.getChildren(grid)
-  let n = childCount(cols)
-  if n <= 0 or n > 512: return nil
-  for i in 0 ..< n:
-    let col = childAt(cols, i)
-    if col != nil and childCount(f.getChildren(col)) >= MIN_COLUMN_ROWS: return col
-  nil
-
-## One half of the page: a vertical list of cloned rows. A fresh StackPanel already stacks
-## vertically, so the only thing it cannot work out for itself is how wide our half is - the
-## page grid has no strip definitions, so a child with no width stretches across all of it.
-proc buildColumn(model: pointer, first, last: int, left: float): pointer =
-  let f = sectionFeature
-  let col = newInstance(f.stackPanelClass)
-  if col == nil: return nil
-  discard pin(col)
-  adoptFrom(col, model, [f.offRenderer, f.offLayoutCtx])
-  if f.setWidth != nil: f.setWidth(col, cfloat(COLUMN_WIDTH))
-  placeInPage(col, left, PAGE_TOP)
-
   let kids = f.getChildren(col)
+  let clear = resolveMethod(kids, "Clear", 0)
   let add = resolveAdd(kids)
-  if add == nil: return nil
-  var placed = 0
+  if clear == nil or add == nil: return 0
+  cast[VoidFn](clear)(kids)
   for i in first .. min(last, PAGE_ROWS.high):
     let row = buildRow(PAGE_ROWS[i].kind, PAGE_ROWS[i].title, PAGE_ROWS[i].detail)
     if row == nil: continue
     add(kids, row)
-    inc placed
-  if placed == 0: return nil
-  col
+    inc result
 
-## Builds the tab's content: our own options, drawn with VD's own rows.
-proc buildContent(modelGrid, settings: pointer): pointer =
+## Builds the tab's content as a clone of VD's own settings page with our rows in place of
+## theirs.
+##
+## Hand-building this was the mistake: a Grid from mono_object_new has no row or column
+## definitions, so every child it holds is measured against a degenerate slot, and the columns
+## came out overlapping whatever width and margins they were given. Cloning the page instead
+## inherits the strip definitions, the background, the cell placement and the two columns'
+## exact geometry, which leaves nothing about the layout for us to get wrong.
+proc buildContent(settings: pointer): pointer =
   let f = sectionFeature
-  let grid = newInstance(f.gridClass)
-  if grid == nil: return nil
-  discard pin(grid)
-  adoptFrom(grid, modelGrid, [f.offRenderer, f.offLayoutCtx])
-  copyBackground(grid, modelGrid)
-  placeInTabCell(grid, modelGrid)
-
   f.toggleModel = findRowTemplate(settings, f.checkBoxClass)
   f.choiceModel = findRowTemplate(settings, f.buttonClass)
   f.sliderModel = findRowTemplate(settings, f.sliderClass)
@@ -525,21 +471,33 @@ proc buildContent(modelGrid, settings: pointer): pointer =
        " choice=" & $(f.choiceModel != nil) &
        " slider=" & $(f.sliderModel != nil))
 
-  let kids = f.getChildren(grid)
-  let add = resolveAdd(kids)
-  if add == nil: return nil
-  let modelCol = firstColumn(settings)
+  let page = cloneOf(settings)
+  if page == nil: return nil
+  placeInTabCell(page, settings)
 
-  let leftCol = buildColumn(modelCol, 0, COLUMN_SPLIT - 1, PAGE_INSET)
-  if leftCol != nil: add(kids, leftCol)
-  let rightCol = buildColumn(modelCol, COLUMN_SPLIT, PAGE_ROWS.high,
-                             PAGE_INSET + COLUMN_WIDTH + COLUMN_GAP)
-  if rightCol != nil: add(kids, rightCol)
-  logI("section: page has " & $childCount(kids) & " column(s), " &
+  let kids = f.getChildren(page)
+  let n = childCount(kids)
+  if n <= 0 or n > 512: return nil
+
+  var filled, columns = 0
+  for i in 0 ..< n:
+    let child = childAt(kids, i)
+    if child == nil: continue
+    if not isColumn(child):
+      # An overlay of VD's, with no meaning on our page and nothing to show it.
+      if f.setVisibility != nil: f.setVisibility(child, VISIBILITY_COLLAPSED)
+      continue
+    filled += (if columns == 0: fillColumn(child, 0, COLUMN_SPLIT - 1)
+      else: fillColumn(child, COLUMN_SPLIT, PAGE_ROWS.high))
+    inc columns
+    if columns >= 2: break
+
+  logI("section: page has " & $columns & " column(s), " & $filled & " row(s), " &
        $f.pageButtonCount & " button(s)")
+  if filled == 0: return nil
 
-  if f.setVisibility != nil: f.setVisibility(grid, VISIBILITY_HIDDEN)
-  grid
+  if f.setVisibility != nil: f.setVisibility(page, VISIBILITY_HIDDEN)
+  page
 
 ## VD drives tab changes from a settings event rather than from the button, so the only way to
 ## learn it has switched away from us is to watch one of its own tabs become visible again.
@@ -687,14 +645,11 @@ proc onPanelLoaded(self: pointer) {.nimcall.} =
 
   # The tab's own content: a sibling of VD's tab grids in the same cell, hidden until the entry
   # is chosen. VD keeps all of them parented and just toggles visibility.
-  let tabs = readPtrAt(self, f.offTabPanels)
-  let firstTab = if tabs == nil: nil else: arrayAt(tabs, 0)
-  let modelGrid = if firstTab == nil: nil else: readPtrAt(firstTab, f.offPanelGrid)
-  if modelGrid != nil:
-    let settings = settingsGrid(self)
-    if settings == nil:
-      logE("section: settings page not found, the page will have no rows to clone")
-    let content = buildContent(modelGrid, settings)
+  let settings = settingsGrid(self)
+  if settings == nil:
+    logE("section: settings page not found, there is nothing to clone")
+  else:
+    let content = buildContent(settings)
     if content == nil:
       logE("section: could not build the tab content")
     else:
@@ -705,7 +660,8 @@ proc onPanelLoaded(self: pointer) {.nimcall.} =
       else:
         addRoot(rootKids, content)
         f.content = content
-        logI("section: content panel added beside " & $childCount(tabs) & " VD tab(s)")
+        logI("section: content panel added beside " &
+             $childCount(readPtrAt(self, f.offTabPanels)) & " VD tab(s)")
 
   logI("section: added " & SECTION_NAME & " to a " & $stackCount & "-entry nav")
 
@@ -720,13 +676,11 @@ method install*(f: SectionFeature): bool =
   f.textClass = getClass(TEXT_BLOCK)
   f.checkBoxClass = getClass(CHECK_BOX)
   f.sliderClass = getClass(SLIDER)
-  f.stackPanelClass = getClass(STACK_PANEL)
   f.settingsTabClass = getClass(SETTINGS_TAB)
   if cp == nil or ui == nil or f.buttonClass == nil or f.textClass == nil:
     logE("section: a required class is missing")
     return false
-  if f.checkBoxClass == nil or f.sliderClass == nil or f.stackPanelClass == nil or
-     f.settingsTabClass == nil:
+  if f.checkBoxClass == nil or f.sliderClass == nil or f.settingsTabClass == nil:
     logE("section: a row model class is missing; the page will have no rows")
 
   let cloner = getClass(UI_CLONER)
@@ -737,8 +691,6 @@ method install*(f: SectionFeature): bool =
     return false
 
   f.offGridMain = fieldOffset(cp, "_gridMain")
-  f.offRenderer = fieldOffset(ui, "Renderer")
-  f.offLayoutCtx = fieldOffset(ui, "layoutingContext")
   if f.offGridMain < 0:
     logE("section: _gridMain not found")
     return false
@@ -756,14 +708,9 @@ method install*(f: SectionFeature): bool =
     return false
   f.getPressed = cast[GetBoolFn](methodAddr(buttonBase, "get_IsPressed", 0))
   f.setClickMode = cast[SetI32Fn](methodAddr(buttonBase, "set_ClickMode", 1))
-  f.setWidth = cast[SetF32Fn](methodAddr(ui, "set_Width", 1))
-  f.setHAlign = cast[SetI32Fn](methodAddr(ui, "set_HorizontalAlignment", 1))
-  f.setVAlign = cast[SetI32Fn](methodAddr(ui, "set_VerticalAlignment", 1))
-  f.offMargin = fieldOffset(ui, "MarginInternal")
   f.setVisibility = cast[SetI32Fn](methodAddr(ui, "set_Visibility", 1))
   f.getVisibility = cast[GetI32Fn](methodAddr(ui, "get_Visibility", 0))
 
-  f.gridClass = getClass(GRID)
   f.offDepProps = fieldOffset(ui, "<DependencyProperties>k__BackingField")
   f.offPanelGrid = fieldOffset(getClass(UI_PANEL), "<Grid>k__BackingField")
   f.offTabPanels = fieldOffset(cp, "_tabPanels")
@@ -774,8 +721,7 @@ method install*(f: SectionFeature): bool =
   if container != nil:
     f.containerSetObject = cast[SetObj2Fn](methodAddr(container, "SetObject", 2))
     f.containerGetItem = cast[GetObj2Fn](methodAddr(container, "get_Item", 1))
-  if f.gridClass == nil or f.gridBaseClass == nil or
-     f.containerSetObject == nil or f.offTabPanels < 0:
+  if f.gridBaseClass == nil or f.containerSetObject == nil or f.offTabPanels < 0:
     logE("section: tab content members missing; the entry will have no page")
   if f.getPressed == nil:
     logE("section: ButtonBase::get_IsPressed not resolvable")
