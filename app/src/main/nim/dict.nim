@@ -1,13 +1,10 @@
 ## The translation table. Kotlin fills it over `vdDictPut` before the panel is built, keyed on
 ## the exact English string VD passes to TextBlock::set_Text.
-##
-## Raw interop; see the nemohooks module docs for why these two features are on.
-when defined(nimony):
-  {.feature: "lenientnils".}
-  {.feature: "assumeSync".}
+include nemohooks/features
 
 import std/tables
 import nemohooks
+import nemohooks/backends/mono
 
 var gDict: Table[string, string]
 

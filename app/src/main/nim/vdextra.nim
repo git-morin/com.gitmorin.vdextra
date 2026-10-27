@@ -1,15 +1,14 @@
 ## The module's JNI surface: the registry of features nemohooks installs, and the setters the
 ## Kotlin side calls to push settings across.
-##
-## Raw interop; see the nemohooks module docs for why these two features are on.
-when defined(nimony):
-  {.feature: "lenientnils".}
-  {.feature: "assumeSync".}
+include nemohooks/features
 
 import std/[strutils, atomics]
 import nemohooks
+import nemohooks/backends/mono
 import dict
 import hooks/[sound, text, fonts, forcelan, bitrate, fit, section]
+
+useBackend(monoBackend())
 
 # Order is load-bearing: font-independent features first so a missing TextBlock cannot
 # stop them, and text before the font-capture features, which need what it resolves.

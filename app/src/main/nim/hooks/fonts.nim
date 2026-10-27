@@ -1,9 +1,7 @@
-## Raw interop; see the nemohooks module docs for why these two features are on.
-when defined(nimony):
-  {.feature: "lenientnils".}
-  {.feature: "assumeSync".}
+include nemohooks/features
 
 import nemohooks
+import nemohooks/backends/mono
 import ../fontmap
 
 const SER_CAP = 40 ## Serialize calls to watch before giving up on finding a full font.

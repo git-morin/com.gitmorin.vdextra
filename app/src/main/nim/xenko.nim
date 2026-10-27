@@ -1,10 +1,6 @@
 ## Object layouts specific to Xenko, the engine Virtual Desktop is built on, read off the
 ## decompiled assemblies rather than guessed.
-##
-## Raw interop; see the nemohooks module docs for why these two features are on.
-when defined(nimony):
-  {.feature: "lenientnils".}
-  {.feature: "assumeSync".}
+include nemohooks/features
 
 ## Mono's collection and array layout: a List-like collection keeps its storage behind an
 ## items pointer, a managed array *is* the storage, and both report their length at the same

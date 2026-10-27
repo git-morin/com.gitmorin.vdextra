@@ -2,14 +2,11 @@
 ## translated string renders as boxes. The fonts that do carry full coverage pass through
 ## Xenko's serializer and content manager during startup, where `hooks/fonts` captures them;
 ## this is where they are kept and matched back to a size when a TextBlock needs one.
-##
-## Raw interop; see the nemohooks module docs for why these two features are on.
-when defined(nimony):
-  {.feature: "lenientnils".}
-  {.feature: "assumeSync".}
+include nemohooks/features
 
 import std/[tables, locks, math]
 import nemohooks
+import nemohooks/backends/mono
 
 const FULL* = 1000 ## Glyph count we treat as full coverage.
 
