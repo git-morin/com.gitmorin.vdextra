@@ -1,20 +1,10 @@
-## Our code is almost entirely raw interop - Mono object pointers, Dobby trampolines,
-## ELF symbol tables - where nil is a normal value rather than an error. Nimony makes
-## every ptr not-nil by default, so this opts the module back into Nim 2 rules; the
-## stdlib modules that were ported from Nim do the same.
-##
-## assumeSync goes with it: the resolved entry points are globals written once while the
-## module is loading and only read afterwards, which Nimony's thread-safety analysis cannot
-## see. Its own ioring backends opt out the same way.
+## Raw interop; see the nimohooks module docs for why these two features are on.
 when defined(nimony):
   {.feature: "lenientnils".}
   {.feature: "assumeSync".}
 
-  ## Nimony has no Atomic[T] of its own; ours lives in compat.
-  import ../compat
-
-import std/[atomics, strutils]
-import ../vdlog, ../mono, hook
+import std/atomics
+import nimohooks
 
 type
   GetBoolFn = proc(self: pointer): bool {.cdecl, gcsafe.}
@@ -77,7 +67,5 @@ method install*(f: ForceLanFeature): bool =
   if f.getIdentity.install(cls): logI("hooked UserSettings::get_HasValidIdentity")
   if f.setIdentity.install(cls): logI("hooked UserSettings::set_HasValidIdentity")
   if f.ctor.install(cls): logI("hooked UserSettings::.ctor")
-  logI("forceLan: identity field=0x" &
-       toLowerAscii(toHex(cast[int64](f.identityField), 16)).strip(
-         trailing = false, chars = {'0'}))
+  logI("forceLan: identity field=" & hex(f.identityField))
   true

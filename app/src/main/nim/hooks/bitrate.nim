@@ -1,20 +1,10 @@
-## Our code is almost entirely raw interop - Mono object pointers, Dobby trampolines,
-## ELF symbol tables - where nil is a normal value rather than an error. Nimony makes
-## every ptr not-nil by default, so this opts the module back into Nim 2 rules; the
-## stdlib modules that were ported from Nim do the same.
-##
-## assumeSync goes with it: the resolved entry points are globals written once while the
-## module is loading and only read afterwards, which Nimony's thread-safety analysis cannot
-## see. Its own ioring backends opt out the same way.
+## Raw interop; see the nimohooks module docs for why these two features are on.
 when defined(nimony):
   {.feature: "lenientnils".}
   {.feature: "assumeSync".}
 
-  ## Nimony has no Atomic[T] of its own; ours lives in compat.
-  import ../compat
-
 import std/[atomics, strutils]
-import ../vdlog, ../mono, hook
+import nimohooks
 
 type
   MinMax1Fn = proc(a: int32): int32 {.cdecl, gcsafe.}

@@ -25,3 +25,8 @@ desktop.ini
 # pnak (Nimony package manager) outputs
 deps/
 nimony.paths
+
+# nimble outputs, when `nimble setup`/`develop` is used instead of the sibling checkout
+nimble.paths
+nimble.develop
+nimbledeps

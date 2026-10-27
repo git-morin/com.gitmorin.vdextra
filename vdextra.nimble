@@ -1,6 +1,5 @@
-# Package metadata for pnak, Nimony's package manager. The module has no dependencies beyond
-# the standard library; this exists so a future one is declared in the place pnak looks, and
-# so `pnak pin` can lock the closure.
+# Dependency metadata for both package managers: nimble resolves it for the Nim 2 build that
+# CMake drives, pnak for the Nimony one. `make deps` runs both.
 
 version       = "0.4.0"
 author        = "git-morin"
@@ -10,3 +9,4 @@ srcDir        = "app/src/main/nim"
 bin           = @["vdextra"]
 
 requires "nim >= 2.0.0"
+requires "https://github.com/git-morin/nimo-hooks >= 0.1.0"

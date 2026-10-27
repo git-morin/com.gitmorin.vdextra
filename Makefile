@@ -19,8 +19,13 @@ NIMONY_VERSION := 0.6.3
 NIMONY_DIR := $(TOOLS_DIR)/nimony-$(NIMONY_VERSION)/nimony
 NIMONY := $(NIMONY_DIR)/bin/nimony.exe
 PNAK := $(NIMONY_DIR)/bin/pnak.exe
+# The nimohooks library this module is built on. nim.cfg points Nim 2 at a sibling checkout;
+# Nimony only honours an absolute --path, which is also what pnak writes into nimony.paths, so
+# the same checkout is passed here spelled out. Override to build against one elsewhere.
+NIMO_HOOKS ?= $(abspath ../nimo-hooks)
+NIMO_HOOKS_PATH := $(if $(wildcard $(NIMO_HOOKS)/src),--path:$(NIMO_HOOKS)/src,)
 # --compat makes Nimony read the same nim.cfg Nim 2 uses, so the target is declared once.
-NIMONY_FLAGS := --compat --os:android --cpu:arm64
+NIMONY_FLAGS := --compat --os:android --cpu:arm64 $(NIMO_HOOKS_PATH)
 KTLINT_JAR := $(TOOLS_DIR)/ktlint-$(KTLINT_VERSION).jar
 DETEKT_JAR := $(TOOLS_DIR)/detekt-cli-$(DETEKT_VERSION)-all.jar
 KT_SRC := app/src/main/kotlin
@@ -31,7 +36,7 @@ JAVA_BIN := $(if $(JAVA_HOME),$(subst \,/,$(JAVA_HOME))/bin/java,java)
 .PHONY: help help-more lint check fmt fmt-check build apk install run ship \
         connect device require-device logs logs-dump tombstones \
         tombstones-clean clean tools kt-check kt-fmt kt-fmt-check \
-        nimony-check nimony-build deps require-nimony
+        nimony-check nimony-build deps lib-check require-nimony
 
 lint: check fmt-check kt-check kt-fmt-check ## Lint the Nim, C and Kotlin (needs no Android SDK)
 
@@ -44,8 +49,14 @@ nimony-check: require-nimony ## Type-check the same sources with Nimony (Nim 3)
 nimony-build: require-nimony # Compile with Nimony; needs an NDK clang on PATH
 	@$(NIMONY) c $(NIMONY_FLAGS) --app:lib --cc:clang $(NIM_MAIN)
 
-deps: require-nimony # Resolve the dependency closure with pnak and refresh nimony.paths
+deps: require-nimony ## Resolve nimohooks for both compilers: nimble for Nim 2, pnak for Nimony
+	@nimble install -y --depsOnly
 	@$(PNAK) fetch vdextra.nimble
+
+lib-check: # Type-check the sibling nimohooks checkout on its own
+	@test -d "$(NIMO_HOOKS)/src" || { echo "no nimohooks checkout at $(NIMO_HOOKS)"; exit 1; }
+	@nim check --hints:off $(NIMO_HOOKS)/src/nimohooks.nim
+	@$(NIMONY) check --compat --os:android --cpu:arm64 $(NIMO_HOOKS)/src/nimohooks.nim
 
 require-nimony:
 	@test -x "$(NIMONY)" || { \

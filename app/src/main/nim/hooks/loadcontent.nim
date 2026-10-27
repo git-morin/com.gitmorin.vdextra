@@ -1,4 +1,9 @@
-import ../vdlog, ../mono, hook
+## Raw interop; see the nimohooks module docs for why these two features are on.
+when defined(nimony):
+  {.feature: "lenientnils".}
+  {.feature: "assumeSync".}
+
+import nimohooks
 
 ## Shared owner of ControlPanel.LoadContent.
 ##
@@ -29,11 +34,10 @@ proc hookLoadContent(self: pointer) {.cdecl.} =
     guard "ControlPanel.LoadContent":
       cb(self)
 
-gHook = newHook(CONTROL_PANEL, "LoadContent", 0, cast[pointer](hookLoadContent))
+gHook = newHook(CONTROL_PANEL, "LoadContent", 0, asPointer(hookLoadContent))
 
 proc installLoadContent*(): bool =
-  ## Idempotent: the first feature to ask installs it, the rest reuse it.
-  if gHook.installed: return true
+  if gHook.installed: return true # Idempotency check
   let cp = getClass(CONTROL_PANEL)
   if cp == nil:
     logE("loadcontent: ControlPanel class not found")

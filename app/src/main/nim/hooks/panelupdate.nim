@@ -1,4 +1,10 @@
-import ../vdlog, ../mono, hook, loadcontent
+## Raw interop; see the nimohooks module docs for why these two features are on.
+when defined(nimony):
+  {.feature: "lenientnils".}
+  {.feature: "assumeSync".}
+
+import nimohooks
+import loadcontent
 
 ## Shared owner of ControlPanel.Update, the panel's per-frame tick.
 ##
@@ -26,11 +32,10 @@ proc hookUpdate(self: pointer, gameTime: pointer) {.cdecl.} =
     guard "ControlPanel.Update":
       cb(self)
 
-gHook = newHook(CONTROL_PANEL, "Update", 1, cast[pointer](hookUpdate))
+gHook = newHook(CONTROL_PANEL, "Update", 1, asPointer(hookUpdate))
 
 proc installPanelUpdate*(): bool =
-  ## Idempotent: the first feature to ask installs it, the rest reuse it.
-  if gHook.installed: return true
+  if gHook.installed: return true # Idempotency check
   let cp = getClass(CONTROL_PANEL)
   if cp == nil:
     logE("panelupdate: ControlPanel class not found")
