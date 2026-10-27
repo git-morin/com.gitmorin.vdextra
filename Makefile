@@ -53,10 +53,10 @@ deps: require-nimony ## Resolve nimohooks for both compilers: nimble for Nim 2, 
 	@nimble install -y --depsOnly
 	@$(PNAK) fetch vdextra.nimble
 
-lib-check: # Type-check the sibling nimohooks checkout on its own
+lib-check: # Run the sibling nimohooks checkout's own gate, reusing the Nimony unpacked here
 	@test -d "$(NIMO_HOOKS)/src" || { echo "no nimohooks checkout at $(NIMO_HOOKS)"; exit 1; }
-	@nim check --hints:off $(NIMO_HOOKS)/src/nimohooks.nim
-	@$(NIMONY) check --compat --os:android --cpu:arm64 $(NIMO_HOOKS)/src/nimohooks.nim
+	@$(MAKE) --no-print-directory -C $(NIMO_HOOKS) lint
+	@$(MAKE) --no-print-directory -C $(NIMO_HOOKS) nimony-check NIMONY_DIR=$(abspath $(NIMONY_DIR))
 
 require-nimony:
 	@test -x "$(NIMONY)" || { \
