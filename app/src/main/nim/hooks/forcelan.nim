@@ -1,10 +1,10 @@
-## Raw interop; see the nimohooks module docs for why these two features are on.
+## Raw interop; see the nemohooks module docs for why these two features are on.
 when defined(nimony):
   {.feature: "lenientnils".}
   {.feature: "assumeSync".}
 
 import std/atomics
-import nimohooks
+import nemohooks
 
 type
   GetBoolFn = proc(self: pointer): bool {.cdecl, gcsafe.}

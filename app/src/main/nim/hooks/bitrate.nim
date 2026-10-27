@@ -1,10 +1,10 @@
-## Raw interop; see the nimohooks module docs for why these two features are on.
+## Raw interop; see the nemohooks module docs for why these two features are on.
 when defined(nimony):
   {.feature: "lenientnils".}
   {.feature: "assumeSync".}
 
 import std/[atomics, strutils]
-import nimohooks
+import nemohooks
 
 type
   MinMax1Fn = proc(a: int32): int32 {.cdecl, gcsafe.}

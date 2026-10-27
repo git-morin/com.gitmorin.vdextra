@@ -3,13 +3,13 @@
 ## Xenko's serializer and content manager during startup, where `hooks/fonts` captures them;
 ## this is where they are kept and matched back to a size when a TextBlock needs one.
 ##
-## Raw interop; see the nimohooks module docs for why these two features are on.
+## Raw interop; see the nemohooks module docs for why these two features are on.
 when defined(nimony):
   {.feature: "lenientnils".}
   {.feature: "assumeSync".}
 
 import std/[tables, locks, math]
-import nimohooks
+import nemohooks
 
 const FULL* = 1000 ## Glyph count we treat as full coverage.
 

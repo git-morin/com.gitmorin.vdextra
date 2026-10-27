@@ -1,13 +1,13 @@
-## The module's JNI surface: the registry of features nimohooks installs, and the setters the
+## The module's JNI surface: the registry of features nemohooks installs, and the setters the
 ## Kotlin side calls to push settings across.
 ##
-## Raw interop; see the nimohooks module docs for why these two features are on.
+## Raw interop; see the nemohooks module docs for why these two features are on.
 when defined(nimony):
   {.feature: "lenientnils".}
   {.feature: "assumeSync".}
 
 import std/[strutils, atomics]
-import nimohooks
+import nemohooks
 import dict
 import hooks/[sound, text, fonts, forcelan, bitrate, fit, section]
 

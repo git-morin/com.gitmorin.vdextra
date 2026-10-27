@@ -19,13 +19,13 @@ NIMONY_VERSION := 0.6.3
 NIMONY_DIR := $(TOOLS_DIR)/nimony-$(NIMONY_VERSION)/nimony
 NIMONY := $(NIMONY_DIR)/bin/nimony.exe
 PNAK := $(NIMONY_DIR)/bin/pnak.exe
-# The nimohooks library this module is built on. nim.cfg points Nim 2 at a sibling checkout;
+# The nemohooks library this module is built on. nim.cfg points Nim 2 at a sibling checkout;
 # Nimony only honours an absolute --path, which is also what pnak writes into nimony.paths, so
 # the same checkout is passed here spelled out. Override to build against one elsewhere.
-NIMO_HOOKS ?= $(abspath ../nimo-hooks)
-NIMO_HOOKS_PATH := $(if $(wildcard $(NIMO_HOOKS)/src),--path:$(NIMO_HOOKS)/src,)
+NEMO_HOOKS ?= $(abspath ../nemo-hooks)
+NEMO_HOOKS_PATH := $(if $(wildcard $(NEMO_HOOKS)/src),--path:$(NEMO_HOOKS)/src,)
 # --compat makes Nimony read the same nim.cfg Nim 2 uses, so the target is declared once.
-NIMONY_FLAGS := --compat --os:android --cpu:arm64 $(NIMO_HOOKS_PATH)
+NIMONY_FLAGS := --compat --os:android --cpu:arm64 $(NEMO_HOOKS_PATH)
 KTLINT_JAR := $(TOOLS_DIR)/ktlint-$(KTLINT_VERSION).jar
 DETEKT_JAR := $(TOOLS_DIR)/detekt-cli-$(DETEKT_VERSION)-all.jar
 KT_SRC := app/src/main/kotlin
@@ -49,14 +49,14 @@ nimony-check: require-nimony ## Type-check the same sources with Nimony (Nim 3)
 nimony-build: require-nimony # Compile with Nimony; needs an NDK clang on PATH
 	@$(NIMONY) c $(NIMONY_FLAGS) --app:lib --cc:clang $(NIM_MAIN)
 
-deps: require-nimony ## Resolve nimohooks for both compilers: nimble for Nim 2, pnak for Nimony
+deps: require-nimony ## Resolve nemohooks for both compilers: nimble for Nim 2, pnak for Nimony
 	@nimble install -y --depsOnly
 	@$(PNAK) fetch vdextra.nimble
 
-lib-check: # Run the sibling nimohooks checkout's own gate, reusing the Nimony unpacked here
-	@test -d "$(NIMO_HOOKS)/src" || { echo "no nimohooks checkout at $(NIMO_HOOKS)"; exit 1; }
-	@$(MAKE) --no-print-directory -C $(NIMO_HOOKS) lint
-	@$(MAKE) --no-print-directory -C $(NIMO_HOOKS) nimony-check NIMONY_DIR=$(abspath $(NIMONY_DIR))
+lib-check: # Run the sibling nemohooks checkout's own gate, reusing the Nimony unpacked here
+	@test -d "$(NEMO_HOOKS)/src" || { echo "no nemohooks checkout at $(NEMO_HOOKS)"; exit 1; }
+	@$(MAKE) --no-print-directory -C $(NEMO_HOOKS) lint
+	@$(MAKE) --no-print-directory -C $(NEMO_HOOKS) nimony-check NIMONY_DIR=$(abspath $(NIMONY_DIR))
 
 require-nimony:
 	@test -x "$(NIMONY)" || { \

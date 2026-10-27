@@ -1,7 +1,7 @@
 ## Object layouts specific to Xenko, the engine Virtual Desktop is built on, read off the
 ## decompiled assemblies rather than guessed.
 ##
-## Raw interop; see the nimohooks module docs for why these two features are on.
+## Raw interop; see the nemohooks module docs for why these two features are on.
 when defined(nimony):
   {.feature: "lenientnils".}
   {.feature: "assumeSync".}
