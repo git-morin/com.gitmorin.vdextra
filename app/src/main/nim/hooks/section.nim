@@ -2,8 +2,16 @@
 ## ELF symbol tables - where nil is a normal value rather than an error. Nimony makes
 ## every ptr not-nil by default, so this opts the module back into Nim 2 rules; the
 ## stdlib modules that were ported from Nim do the same.
+##
+## assumeSync goes with it: the resolved entry points are globals written once while the
+## module is loading and only read afterwards, which Nimony's thread-safety analysis cannot
+## see. Its own ioring backends opt out the same way.
 when defined(nimony):
   {.feature: "lenientnils".}
+  {.feature: "assumeSync".}
+
+  ## Nimony has no Atomic[T] of its own; ours lives in compat.
+  import ../compat
 
 import std/atomics
 import ../vdlog, ../mono, hook, loadcontent, panelupdate
@@ -217,7 +225,7 @@ proc resolveMethod(coll: pointer, name: string, np: int): pointer =
   nil
 
 proc resolveAdd(coll: pointer): AddFn =
-  cast[AddFn](resolveMethod(coll, "Add", 1))
+  asProc[AddFn](resolveMethod(coll, "Add", 1))
 
 ## Matched on the exact class, not on inheritance: CheckBox and Button are siblings under
 ## ButtonBase rather than parent and child, so exactness is what separates a toggle row from an
@@ -281,7 +289,8 @@ proc setTextColorAt(text: pointer, colour: uint32) =
 ## majority is the inactive shade. Reading it beats hard-coding grey, which would be wrong the
 ## moment VD restyles its panel.
 proc inactiveTextColor(entries: pointer, count: int): uint32 =
-  var tally: array[8, tuple[colour: uint32, hits: int]]
+  result = 0'u32
+  var tally {.noinit.}: array[8, tuple[colour: uint32, hits: int]]
   var used = 0
   for i in 0 ..< count:
     let btn = childAt(entries, i)
@@ -322,7 +331,7 @@ proc inactiveTextColor(entries: pointer, count: int): uint32 =
 proc cloneOf(model: pointer): pointer =
   let f = sectionFeature
   if model == nil or f.cloneMethod == nil or pRuntimeInvoke == nil: return nil
-  var args: array[1, pointer]
+  var args {.noinit.}: array[1, pointer]
   args[0] = model
   var exc: MonoObject = nil
   result = pRuntimeInvoke(f.cloneMethod, nil,
@@ -356,7 +365,7 @@ proc collectLabels(el: pointer, depth: int,
 ## content, a slider row's title above the track, a button's caption, or - for a header or a
 ## description - the row itself, which is already a TextBlock.
 proc retextRow(row: pointer, text: string) =
-  var labels: array[MAX_ROW_LABELS, pointer]
+  var labels {.noinit.}: array[MAX_ROW_LABELS, pointer]
   var n = 0
   collectLabels(row, 0, labels, n)
   if n > 0: setLabel(labels[0], text)
@@ -495,7 +504,9 @@ proc isColumn(el: pointer): bool =
 ## Walks every visible row of every column on the settings page. Collapsed rows are skipped:
 ## SettingsTab hides the ones this headset does not support, and a hidden template clones into
 ## a row that draws nothing.
-iterator settingsRows(grid: pointer): pointer =
+## Nimony treats an iterator as noSideEffect unless told otherwise; this one reads the
+## feature's resolved entry points, which are globals.
+iterator settingsRows(grid: pointer): pointer {.sideEffect.} =
   let f = sectionFeature
   if grid != nil:
     let cols = f.getChildren(grid)
@@ -531,12 +542,13 @@ proc findTextTemplate(grid: pointer, indented: bool): pointer =
 
 ## Fills one emptied column with the rows assigned to it.
 proc fillColumn(col: pointer, index: int): int =
+  result = 0
   let f = sectionFeature
   let kids = f.getChildren(col)
   let clear = resolveMethod(kids, "Clear", 0)
   let add = resolveAdd(kids)
   if clear == nil or add == nil: return 0
-  cast[VoidFn](clear)(kids)
+  asProc[VoidFn](clear)(kids)
   for spec in PAGE_ROWS:
     if spec.column == index:
       let row = buildRow(spec.kind, spec.text)
@@ -848,9 +860,9 @@ method install*(f: SectionFeature): bool =
     logE("section: _gridMain not found")
     return false
 
-  f.getVisualChildren = cast[GetObjFn](methodAddr(ui, "get_VisualChildren", 0))
-  f.getChildren = cast[GetObjFn](methodAddr(getClass(PANEL), "get_Children", 0))
-  f.setText = cast[SetStrFn](methodAddr(f.textClass, "set_Text", 1))
+  f.getVisualChildren = asProc[GetObjFn](methodAddr(ui, "get_VisualChildren", 0))
+  f.getChildren = asProc[GetObjFn](methodAddr(getClass(PANEL), "get_Children", 0))
+  f.setText = asProc[SetStrFn](methodAddr(f.textClass, "set_Text", 1))
   if f.getVisualChildren == nil or f.getChildren == nil or f.setText == nil:
     logE("section: a required member is missing")
     return false
@@ -859,12 +871,12 @@ method install*(f: SectionFeature): bool =
   if buttonBase == nil:
     logE("section: ButtonBase not found, the entry would not be clickable")
     return false
-  f.getPressed = cast[GetBoolFn](methodAddr(buttonBase, "get_IsPressed", 0))
-  f.setClickMode = cast[SetI32Fn](methodAddr(buttonBase, "set_ClickMode", 1))
-  f.setVisibility = cast[SetI32Fn](methodAddr(ui, "set_Visibility", 1))
-  f.getVisibility = cast[GetI32Fn](methodAddr(ui, "get_Visibility", 0))
-  f.setEnabled = cast[SetBoolFn](methodAddr(ui, "set_IsEnabled", 1))
-  f.getMouseOver = cast[GetI32Fn](methodAddr(ui, "get_MouseOverState", 0))
+  f.getPressed = asProc[GetBoolFn](methodAddr(buttonBase, "get_IsPressed", 0))
+  f.setClickMode = asProc[SetI32Fn](methodAddr(buttonBase, "set_ClickMode", 1))
+  f.setVisibility = asProc[SetI32Fn](methodAddr(ui, "set_Visibility", 1))
+  f.getVisibility = asProc[GetI32Fn](methodAddr(ui, "get_Visibility", 0))
+  f.setEnabled = asProc[SetBoolFn](methodAddr(ui, "set_IsEnabled", 1))
+  f.getMouseOver = asProc[GetI32Fn](methodAddr(ui, "get_MouseOverState", 0))
 
   let gameSystem = getClass(GAME_SYSTEM)
   let vdGame = getClass(VD_GAME)
@@ -872,8 +884,8 @@ method install*(f: SectionFeature): bool =
   f.offGame = if gameSystem == nil: -1 else: fieldOffset(gameSystem, "<Game>k__BackingField")
   f.offSound = if vdGame == nil: -1 else: fieldOffset(vdGame, "<Sound>k__BackingField")
   if soundSystem != nil:
-    f.playClick = cast[VoidFn](methodAddr(soundSystem, "PlayClick", 0))
-    f.playMouseOver = cast[VoidFn](methodAddr(soundSystem, "PlayMouseOver", 0))
+    f.playClick = asProc[VoidFn](methodAddr(soundSystem, "PlayClick", 0))
+    f.playMouseOver = asProc[VoidFn](methodAddr(soundSystem, "PlayMouseOver", 0))
   if f.playClick == nil or f.offGame < 0 or f.offSound < 0:
     logE("section: sound system not reachable; the entry will be silent")
   if f.getMouseOver == nil:
@@ -893,8 +905,8 @@ method install*(f: SectionFeature): bool =
   f.gridBaseClass = getClass(GRID_BASE)
   let container = getClass(PROPERTY_CONTAINER)
   if container != nil:
-    f.containerSetObject = cast[SetObj2Fn](methodAddr(container, "SetObject", 2))
-    f.containerGetItem = cast[GetObj2Fn](methodAddr(container, "get_Item", 1))
+    f.containerSetObject = asProc[SetObj2Fn](methodAddr(container, "SetObject", 2))
+    f.containerGetItem = asProc[GetObj2Fn](methodAddr(container, "get_Item", 1))
   if f.gridBaseClass == nil or f.containerSetObject == nil or f.offTabPanels < 0:
     logE("section: tab content members missing; the entry will have no page")
   if f.getPressed == nil:

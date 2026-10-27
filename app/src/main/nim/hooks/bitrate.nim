@@ -2,8 +2,16 @@
 ## ELF symbol tables - where nil is a normal value rather than an error. Nimony makes
 ## every ptr not-nil by default, so this opts the module back into Nim 2 rules; the
 ## stdlib modules that were ported from Nim do the same.
+##
+## assumeSync goes with it: the resolved entry points are globals written once while the
+## module is loading and only read afterwards, which Nimony's thread-safety analysis cannot
+## see. Its own ioring backends opt out the same way.
 when defined(nimony):
   {.feature: "lenientnils".}
+  {.feature: "assumeSync".}
+
+  ## Nimony has no Atomic[T] of its own; ours lives in compat.
+  import ../compat
 
 import std/[atomics, strutils]
 import ../vdlog, ../mono, hook
@@ -240,37 +248,37 @@ const
   SETTINGS_TAB = "VirtualDesktop.Mobile.SettingsTab, VirtualDesktop.Mobile"
   LIMIT_SLIDER = "Xenko.UI.Controls.LimitSlider, Xenko.UI"
 
-bitrateFeature.maxDesk = newHook(HMD_EXT, "GetMaxDesktopBitrate", 1, cast[pointer](hookMaxDesk))
-bitrateFeature.maxVR = newHook(HMD_EXT, "GetMaxVRBitrate", 3, cast[pointer](hookMaxVR))
+bitrateFeature.maxDesk = newHook(HMD_EXT, "GetMaxDesktopBitrate", 1, asPointer(hookMaxDesk))
+bitrateFeature.maxVR = newHook(HMD_EXT, "GetMaxVRBitrate", 3, asPointer(hookMaxVR))
 bitrateFeature.desktopBitrate = newHook(HMD_EXT, "GetDesktopBitrate", 2,
-                                 cast[pointer](hookDesktopBitrate))
+                                 asPointer(hookDesktopBitrate))
 bitrateFeature.desktopBitrateString = newHook(HMD_EXT, "GetDesktopBitrateString", 2,
-                                       cast[pointer](hookDesktopBitrateString))
+                                       asPointer(hookDesktopBitrateString))
 bitrateFeature.setDesktopLimit = newHook(SHARED_USER, "set_DesktopBitrateLimit", 1,
-                                  cast[pointer](hookSetDesktopLimit))
+                                  asPointer(hookSetDesktopLimit))
 bitrateFeature.setVRLimit = newHook(SHARED_USER, "set_VRBitrateLimit", 1,
-                             cast[pointer](hookSetVRLimit))
-bitrateFeature.setHmdType = newHook(SHARED_MOBILE, "set_HmdType", 1, cast[pointer](hookCaptureHmd))
+                             asPointer(hookSetVRLimit))
+bitrateFeature.setHmdType = newHook(SHARED_MOBILE, "set_HmdType", 1, asPointer(hookCaptureHmd))
 bitrateFeature.setFoveated = newHook(SHARED_MOBILE, "set_FoveatedStreaming", 1,
-                              cast[pointer](hookCaptureFov))
+                              asPointer(hookCaptureFov))
 bitrateFeature.setMeasuredBandwidth = newHook(SHARED_MOBILE, "set_MeasuredBandwidth", 1,
-                                       cast[pointer](hookSetMeasuredBandwidth))
+                                       asPointer(hookSetMeasuredBandwidth))
 bitrateFeature.setCodec = newHook(SHARED_STREAMER, "set_ActiveCodec", 1,
-                           cast[pointer](hookCaptureCodec))
+                           asPointer(hookCaptureCodec))
 bitrateFeature.serializerObject = newHook(JSON_HELPER, "SerializerObject", 2,
-                                   cast[pointer](hookSerializerObject))
+                                   asPointer(hookSerializerObject))
 bitrateFeature.settingsMeasured = newHook(SETTINGS_TAB, "OnMeasuredBandwidthChanged", 0,
-                                   cast[pointer](hookSettingsMeasured))
+                                   asPointer(hookSettingsMeasured))
 bitrateFeature.limitSliderSetLimit = newHook(LIMIT_SLIDER, "set_Limit", 1,
-                                      cast[pointer](hookLimitSliderSetLimit))
+                                      asPointer(hookLimitSliderSetLimit))
 
 method install*(f: BitrateFeature): bool =
   var ok = 0
 
   let hx = getClass(HMD_EXT)
   if hx != nil:
-    f.minDesk = cast[MinMax1Fn](methodAddr(hx, "GetMinDesktopBitrate", 1))
-    f.minVR = cast[MinMax1Fn](methodAddr(hx, "GetMinVRBitrate", 1))
+    f.minDesk = asProc[MinMax1Fn](methodAddr(hx, "GetMinDesktopBitrate", 1))
+    f.minVR = asProc[MinMax1Fn](methodAddr(hx, "GetMinVRBitrate", 1))
     for h in [f.maxDesk, f.maxVR, f.desktopBitrate, f.desktopBitrateString]:
       if h.install(hx): inc ok
   else:
@@ -287,15 +295,15 @@ method install*(f: BitrateFeature): bool =
     logE("SharedUserSettings class not found")
   f.userSettingsClass = us
   if us != nil and pClassGetParent != nil:
-    f.userSendReload = cast[VoidFn](findInherited(pClassGetParent(us), "SendSettingsReload"))
+    f.userSendReload = asProc[VoidFn](findInherited(pClassGetParent(us), "SendSettingsReload"))
 
   let ms = getClass(SHARED_MOBILE)
   if ms != nil:
     for h in [f.setHmdType, f.setFoveated, f.setMeasuredBandwidth]:
       if h.install(ms): inc ok
-    f.sendReload = cast[VoidFn](methodAddr(ms, "SendSettingsReload", 0))
+    f.sendReload = asProc[VoidFn](methodAddr(ms, "SendSettingsReload", 0))
     if f.sendReload == nil and pClassGetParent != nil:
-      f.sendReload = cast[VoidFn](findInherited(pClassGetParent(ms), "SendSettingsReload"))
+      f.sendReload = asProc[VoidFn](findInherited(pClassGetParent(ms), "SendSettingsReload"))
   else:
     logE("SharedMobileSettings class not found")
 

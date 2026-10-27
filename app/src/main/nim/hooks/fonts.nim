@@ -2,8 +2,13 @@
 ## ELF symbol tables - where nil is a normal value rather than an error. Nimony makes
 ## every ptr not-nil by default, so this opts the module back into Nim 2 rules; the
 ## stdlib modules that were ported from Nim do the same.
+##
+## assumeSync goes with it: the resolved entry points are globals written once while the
+## module is loading and only read afterwards, which Nimony's thread-safety analysis cannot
+## see. Its own ioring backends opt out the same way.
 when defined(nimony):
   {.feature: "lenientnils".}
+  {.feature: "assumeSync".}
 
 import ../vdlog, ../mono, hook
 
@@ -61,11 +66,11 @@ proc hookLoad2(x0, x1, x2: pointer): MonoObject {.cdecl.} =
 
 fontSerializerFeature.serialize = newHook(
   "Xenko.Graphics.Font.OfflineRasterizedSpriteFontSerializer, Xenko.Graphics",
-  "Serialize", 3, cast[pointer](hookSerialize))
+  "Serialize", 3, asPointer(hookSerialize))
 
 const CONTENT_MANAGER = "Xenko.Core.Serialization.Contents.ContentManager, Xenko.Core.Serialization"
-contentLoadFeature.load3 = newHook(CONTENT_MANAGER, "Load", 3, cast[pointer](hookLoad3))
-contentLoadFeature.load2 = newHook(CONTENT_MANAGER, "Load", 2, cast[pointer](hookLoad2))
+contentLoadFeature.load3 = newHook(CONTENT_MANAGER, "Load", 3, asPointer(hookLoad3))
+contentLoadFeature.load2 = newHook(CONTENT_MANAGER, "Load", 2, asPointer(hookLoad2))
 
 method install*(f: FontSerializerFeature): bool =
   let cls = getClass("Xenko.Graphics.Font.OfflineRasterizedSpriteFontSerializer, Xenko.Graphics")

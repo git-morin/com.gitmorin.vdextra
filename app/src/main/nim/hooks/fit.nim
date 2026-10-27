@@ -2,8 +2,16 @@
 ## ELF symbol tables - where nil is a normal value rather than an error. Nimony makes
 ## every ptr not-nil by default, so this opts the module back into Nim 2 rules; the
 ## stdlib modules that were ported from Nim do the same.
+##
+## assumeSync goes with it: the resolved entry points are globals written once while the
+## module is loading and only read afterwards, which Nimony's thread-safety analysis cannot
+## see. Its own ioring backends opt out the same way.
 when defined(nimony):
   {.feature: "lenientnils".}
+  {.feature: "assumeSync".}
+
+  ## Nimony has no Atomic[T] of its own; ours lives in compat.
+  import ../compat
 
 import std/[atomics, strutils]
 import ../vdlog, ../mono, hook, loadcontent
@@ -102,6 +110,7 @@ proc padEdges(col: pointer): float32 =
 ## Takes `ROW_TRIM` off each row's gap, top and bottom, never below zero. A row whose margin is
 ## already smaller gives what it has rather than being pushed into its neighbour.
 proc trimRows(col: pointer): float32 =
+  result = 0'f32
   let f = fitFeature
   let kids = f.getChildren(col)
   let n = childCount(kids)
@@ -221,13 +230,13 @@ method install*(f: FitFeature): bool =
          " grid=" & $f.offPanelGrid & " margin=" & $f.offMargin & ")")
     return false
 
-  f.getChildren = cast[GetObjFn](methodAddr(panelBase, "get_Children", 0))
-  f.getVisualChildren = cast[GetObjFn](methodAddr(ui, "get_VisualChildren", 0))
+  f.getChildren = asProc[GetObjFn](methodAddr(panelBase, "get_Children", 0))
+  f.getVisualChildren = asProc[GetObjFn](methodAddr(ui, "get_VisualChildren", 0))
   f.textBlockClass = getClass(TEXT_BLOCK)
   if f.textBlockClass != nil:
-    f.getText = cast[GetObjFn](methodAddr(f.textBlockClass, "get_Text", 0))
-    f.getWrap = cast[GetBoolFn](methodAddr(f.textBlockClass, "get_WrapText", 0))
-    f.setWrap = cast[SetBoolFn](methodAddr(f.textBlockClass, "set_WrapText", 1))
+    f.getText = asProc[GetObjFn](methodAddr(f.textBlockClass, "get_Text", 0))
+    f.getWrap = asProc[GetBoolFn](methodAddr(f.textBlockClass, "get_WrapText", 0))
+    f.setWrap = asProc[SetBoolFn](methodAddr(f.textBlockClass, "set_WrapText", 1))
   if f.setWrap == nil or f.getWrap == nil or f.getText == nil:
     logE("fit: TextBlock wrap members missing, long labels will still overflow")
   if f.getChildren == nil:

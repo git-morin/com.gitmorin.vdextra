@@ -2,8 +2,19 @@
 ## ELF symbol tables - where nil is a normal value rather than an error. Nimony makes
 ## every ptr not-nil by default, so this opts the module back into Nim 2 rules; the
 ## stdlib modules that were ported from Nim do the same.
+##
+## assumeSync goes with it: the resolved entry points are globals written once while the
+## module is loading and only read afterwards, which Nimony's thread-safety analysis cannot
+## see. Its own ioring backends opt out the same way.
 when defined(nimony):
   {.feature: "lenientnils".}
+  {.feature: "assumeSync".}
+
+  ## Nimony has no Atomic[T] of its own; ours lives in compat.
+  import ../compat
+
+  ## quit is auto-imported from system in Nim 2 but lives in syncio under Nimony.
+  import std/syncio
 
 import std/[atomics, strutils]
 import ../vdlog, ../mono
@@ -33,7 +44,7 @@ proc newHook*(owner, sym: string, argc: int, replacement: pointer): Hook =
   Hook(owner: owner, sym: sym, argc: argc, replacement: replacement)
 
 proc origAs*[T](h: Hook): T =
-  cast[T](h.orig)
+  asProc[T](h.orig)
 
 proc installAt*(h: Hook, target: pointer): bool {.discardable.} =
   if h.installed: return true
@@ -58,18 +69,27 @@ proc install*(h: Hook): bool {.discardable.} =
   h.install(cls)
 
 method install*(f: Feature): bool {.base.} =
-  raise newException(Defect, "Feature.install is abstract")
+  when defined(nimony):
+    quit "Feature.install is abstract"
+  else:
+    raise newException(Defect, "Feature.install is abstract")
 
 var
   gSetup*: Atomic[bool]
 
 template guard*(what: string, body: untyped) =
-  try:
-    body
-  except CatchableError as e:
-    logE("hook " & what & " raised: " & e.msg)
-  except Defect as e:
-    logE("hook " & what & " defect: " & e.msg)
+  when defined(nimony):
+    try:
+      body
+    except:
+      logE("hook " & what & " raised")
+  else:
+    try:
+      body
+    except CatchableError as e:
+      logE("hook " & what & " raised: " & e.msg)
+    except Defect as e:
+      logE("hook " & what & " defect: " & e.msg)
 
 proc findInherited*(c: MonoClass, name: string): pointer =
   var cur = c

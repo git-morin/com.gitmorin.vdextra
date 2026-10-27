@@ -2,8 +2,16 @@
 ## ELF symbol tables - where nil is a normal value rather than an error. Nimony makes
 ## every ptr not-nil by default, so this opts the module back into Nim 2 rules; the
 ## stdlib modules that were ported from Nim do the same.
+##
+## assumeSync goes with it: the resolved entry points are globals written once while the
+## module is loading and only read afterwards, which Nimony's thread-safety analysis cannot
+## see. Its own ioring backends opt out the same way.
 when defined(nimony):
   {.feature: "lenientnils".}
+  {.feature: "assumeSync".}
+
+  ## Nimony has no Atomic[T] of its own; ours lives in compat.
+  import ../compat
 
 import std/atomics
 import ../vdlog, ../mono, hook
@@ -106,35 +114,35 @@ proc hookMusicResume(self: pointer) {.cdecl.} =
     applyVolume(self)
     setState(1, "Resume")
 
-template defCue(idx: static int, name: untyped) =
-  proc name(self: pointer) {.cdecl.} =
-    if cueSoundsFeature.enabled.load() and (cueSoundsFeature.mask.load() and (1 shl idx)) != 0: return
-    let orig = origAs[VoidFn](cueSoundsFeature.cues[idx])
-    if orig != nil: orig(self)
+## Each cue needs its own address for Dobby to hook, but they differ only by index.
+proc cueBody(idx: int, self: pointer) =
+  if cueSoundsFeature.enabled.load() and (cueSoundsFeature.mask.load() and (1 shl idx)) != 0: return
+  let orig = origAs[VoidFn](cueSoundsFeature.cues[idx])
+  if orig != nil: orig(self)
 
-defCue(0, cue0)
-defCue(1, cue1)
-defCue(2, cue2)
-defCue(3, cue3)
-defCue(4, cue4)
-defCue(5, cue5)
-defCue(6, cue6)
+proc cue0(self: pointer) {.cdecl.} = cueBody(0, self)
+proc cue1(self: pointer) {.cdecl.} = cueBody(1, self)
+proc cue2(self: pointer) {.cdecl.} = cueBody(2, self)
+proc cue3(self: pointer) {.cdecl.} = cueBody(3, self)
+proc cue4(self: pointer) {.cdecl.} = cueBody(4, self)
+proc cue5(self: pointer) {.cdecl.} = cueBody(5, self)
+proc cue6(self: pointer) {.cdecl.} = cueBody(6, self)
 
 const MUSIC_SYSTEM = "VirtualDesktop.Mobile.MusicSystem, VirtualDesktop.Mobile"
 
-musicFeature.play = newHook(MUSIC_SYSTEM, "Play", 0, cast[pointer](hookMusicPlay))
-musicFeature.pause = newHook(MUSIC_SYSTEM, "Pause", 0, cast[pointer](hookMusicPause))
-musicFeature.fadeOut = newHook(MUSIC_SYSTEM, "FadeOut", 0, cast[pointer](hookMusicFadeOut))
+musicFeature.play = newHook(MUSIC_SYSTEM, "Play", 0, asPointer(hookMusicPlay))
+musicFeature.pause = newHook(MUSIC_SYSTEM, "Pause", 0, asPointer(hookMusicPause))
+musicFeature.fadeOut = newHook(MUSIC_SYSTEM, "FadeOut", 0, asPointer(hookMusicFadeOut))
 musicFeature.connChanged = newHook(MUSIC_SYSTEM, "OnIsConnectedChanged", 2,
-                            cast[pointer](hookMusicConnChanged))
-musicFeature.pauseNow = newHook(MUSIC_SYSTEM, "PauseNow", 0, cast[pointer](hookMusicPauseNow))
-musicFeature.resume = newHook(MUSIC_SYSTEM, "Resume", 0, cast[pointer](hookMusicResume))
-musicFeature.onTimer = newHook(MUSIC_SYSTEM, "OnTimer", 1, cast[pointer](hookMusicOnTimer))
+                            asPointer(hookMusicConnChanged))
+musicFeature.pauseNow = newHook(MUSIC_SYSTEM, "PauseNow", 0, asPointer(hookMusicPauseNow))
+musicFeature.resume = newHook(MUSIC_SYSTEM, "Resume", 0, asPointer(hookMusicResume))
+musicFeature.onTimer = newHook(MUSIC_SYSTEM, "OnTimer", 1, asPointer(hookMusicOnTimer))
 
 block:
-  let repls = [cast[pointer](cue0), cast[pointer](cue1), cast[pointer](cue2),
-               cast[pointer](cue3), cast[pointer](cue4), cast[pointer](cue5),
-               cast[pointer](cue6)]
+  let repls = [asPointer(cue0), asPointer(cue1), asPointer(cue2),
+               asPointer(cue3), asPointer(cue4), asPointer(cue5),
+               asPointer(cue6)]
   for i, n in CUE_NAMES:
     cueSoundsFeature.cues[i] = newHook("VirtualDesktop.Mobile.SoundSystem, VirtualDesktop.Mobile",
                                 n, 0, repls[i])
@@ -155,7 +163,7 @@ method install*(f: MusicFeature): bool =
     return false
   # the setter, never the volume field: Xenko pushes gain down to the native audio layer,
   # so writing the field alone changes nothing audible.
-  f.setVolume = cast[SetFloat1Fn](methodAddr(si, "set_Volume", 1))
+  f.setVolume = asProc[SetFloat1Fn](methodAddr(si, "set_Volume", 1))
   if f.setVolume == nil:
     logE("SoundInstance::set_Volume not found")
     return false
@@ -166,7 +174,14 @@ method install*(f: MusicFeature): bool =
   if not f.play.install(cls):
     logE("MusicSystem::Play hook failed")
     return false
-  for h in [f.pause, f.fadeOut, f.pauseNow, f.resume, f.onTimer, f.connChanged]: h.install(cls)
+  # Spelled out rather than looped over an array literal: gathering these ref fields into one
+  # crashes nimony 0.6.3 (finalir.nim: `n.stmtKind in {StmtsS, ScopeS}`).
+  f.pause.install(cls)
+  f.fadeOut.install(cls)
+  f.pauseNow.install(cls)
+  f.resume.install(cls)
+  f.onTimer.install(cls)
+  f.connChanged.install(cls)
   logI("hooked MusicSystem::Play, music volume=" & $f.volume.load())
   true
 
@@ -176,7 +191,7 @@ method install*(f: CueSoundsFeature): bool =
     logE("SoundSystem class not found")
     return false
   var ok = 0
-  for h in f.cues:
-    if h.install(cls): inc ok
+  for i in 0 ..< f.cues.len:
+    if f.cues[i].install(cls): inc ok
   logI("hooked quality sounds: " & $ok & "/" & $CUE_NAMES.len & " mask=" & $f.mask.load())
   true

@@ -2,11 +2,16 @@
 ## ELF symbol tables - where nil is a normal value rather than an error. Nimony makes
 ## every ptr not-nil by default, so this opts the module back into Nim 2 rules; the
 ## stdlib modules that were ported from Nim do the same.
+##
+## assumeSync goes with it: the resolved entry points are globals written once while the
+## module is loading and only read afterwards, which Nimony's thread-safety analysis cannot
+## see. Its own ioring backends opt out the same way.
 when defined(nimony):
   {.feature: "lenientnils".}
+  {.feature: "assumeSync".}
 
 import std/[tables, locks, math]
-import vdlog
+import vdlog, compat
 
 type
   MonoImage* = pointer
@@ -94,6 +99,20 @@ var
 
 const FULL* = 1000 ## glyph count we treat as full coverage
 
+## Nimony refuses a direct `cast` between `pointer` and a proc type, and that conversion is the
+## whole point of this module: every Mono entry point is resolved to a bare address and then
+## called through a typed signature. Casting a *pointer to* the proc type and dereferencing is
+## accepted by both compilers and loads the same word, so these two keep one source compiling
+## under Nim 2 and Nimony alike.
+proc asProc*[T](p: pointer): T =
+  var tmp = p
+  cast[ptr T](addr tmp)[]
+
+proc asPointer*[T](f: T): pointer =
+  var tmp = f
+  cast[ptr pointer](addr tmp)[]
+
+
 var
   gDict: Table[string, string]
   gGoodHandle: MonoGCHandle
@@ -103,39 +122,39 @@ var
 gMapLock.initLock()
 
 proc resolveMono*(sym: proc(name: cstring): pointer {.cdecl, gcsafe.}) =
-  pGetCorlib = cast[GetCorlibFn](sym("mono_get_corlib"))
-  pClassFromName = cast[ClassFromNameFn](sym("mono_class_from_name"))
-  pClassGetMethod = cast[ClassGetMethodFn](sym("mono_class_get_method_from_name"))
-  pRuntimeInvoke = cast[RuntimeInvokeFn](sym("mono_runtime_invoke"))
-  pTypeGetClass = cast[TypeGetClassFn](sym("mono_type_get_class"))
-  pCompileMethod = cast[CompileMethodFn](sym("mono_compile_method"))
-  pObjGetClass = cast[ObjGetClassFn](sym("mono_object_get_class"))
-  pObjUnbox = cast[ObjUnboxFn](sym("mono_object_unbox"))
-  pClassGetParent = cast[ClassGetParentFn](sym("mono_class_get_parent"))
-  pClassGetField = cast[ClassGetFieldFn](sym("mono_class_get_field_from_name"))
-  pFieldGetValue = cast[FieldGetValueFn](sym("mono_field_get_value"))
-  pFieldSetValue = cast[FieldSetValueFn](sym("mono_field_set_value"))
-  pFieldStaticGet = cast[FieldStaticGetFn](sym("mono_field_static_get_value"))
-  pClassVtable = cast[ClassVtableFn](sym("mono_class_vtable"))
-  pRuntimeClassInit = cast[RuntimeClassInitFn](sym("mono_runtime_class_init"))
-  pStringNewUtf16 = cast[StringNewUtf16Fn](sym("mono_string_new_utf16"))
-  pGchandleNew = cast[GchandleNewFn](sym("mono_gchandle_new"))
-  pGchandleGet = cast[GchandleGetFn](sym("mono_gchandle_get_target"))
-  pGchandleFree = cast[GchandleFreeFn](sym("mono_gchandle_free"))
-  pGetRootDomain = cast[GetDomainFn](sym("mono_get_root_domain"))
-  pDomainGet = cast[GetDomainFn](sym("mono_domain_get"))
-  pObjectNew = cast[ObjectNewFn](sym("mono_object_new"))
-  pRuntimeObjectInit = cast[ObjectInitFn](sym("mono_runtime_object_init"))
-  pClassGetName = cast[GetNameFn](sym("mono_class_get_name"))
-  pClassGetNamespace = cast[GetNameFn](sym("mono_class_get_namespace"))
-  pFieldGetName = cast[GetNameFn](sym("mono_field_get_name"))
-  pMethodGetName = cast[GetNameFn](sym("mono_method_get_name"))
-  pClassGetFields = cast[IterFn](sym("mono_class_get_fields"))
-  pClassGetMethods = cast[IterFn](sym("mono_class_get_methods"))
-  pFieldGetType = cast[FieldGetTypeFn](sym("mono_field_get_type"))
-  pFieldGetFlags = cast[FieldGetFlagsFn](sym("mono_field_get_flags"))
-  pTypeIsReference = cast[TypeIsRefFn](sym("mono_type_is_reference"))
-  pFieldGetOffset = cast[FieldGetOffsetFn](sym("mono_field_get_offset"))
+  pGetCorlib = asProc[GetCorlibFn](sym("mono_get_corlib"))
+  pClassFromName = asProc[ClassFromNameFn](sym("mono_class_from_name"))
+  pClassGetMethod = asProc[ClassGetMethodFn](sym("mono_class_get_method_from_name"))
+  pRuntimeInvoke = asProc[RuntimeInvokeFn](sym("mono_runtime_invoke"))
+  pTypeGetClass = asProc[TypeGetClassFn](sym("mono_type_get_class"))
+  pCompileMethod = asProc[CompileMethodFn](sym("mono_compile_method"))
+  pObjGetClass = asProc[ObjGetClassFn](sym("mono_object_get_class"))
+  pObjUnbox = asProc[ObjUnboxFn](sym("mono_object_unbox"))
+  pClassGetParent = asProc[ClassGetParentFn](sym("mono_class_get_parent"))
+  pClassGetField = asProc[ClassGetFieldFn](sym("mono_class_get_field_from_name"))
+  pFieldGetValue = asProc[FieldGetValueFn](sym("mono_field_get_value"))
+  pFieldSetValue = asProc[FieldSetValueFn](sym("mono_field_set_value"))
+  pFieldStaticGet = asProc[FieldStaticGetFn](sym("mono_field_static_get_value"))
+  pClassVtable = asProc[ClassVtableFn](sym("mono_class_vtable"))
+  pRuntimeClassInit = asProc[RuntimeClassInitFn](sym("mono_runtime_class_init"))
+  pStringNewUtf16 = asProc[StringNewUtf16Fn](sym("mono_string_new_utf16"))
+  pGchandleNew = asProc[GchandleNewFn](sym("mono_gchandle_new"))
+  pGchandleGet = asProc[GchandleGetFn](sym("mono_gchandle_get_target"))
+  pGchandleFree = asProc[GchandleFreeFn](sym("mono_gchandle_free"))
+  pGetRootDomain = asProc[GetDomainFn](sym("mono_get_root_domain"))
+  pDomainGet = asProc[GetDomainFn](sym("mono_domain_get"))
+  pObjectNew = asProc[ObjectNewFn](sym("mono_object_new"))
+  pRuntimeObjectInit = asProc[ObjectInitFn](sym("mono_runtime_object_init"))
+  pClassGetName = asProc[GetNameFn](sym("mono_class_get_name"))
+  pClassGetNamespace = asProc[GetNameFn](sym("mono_class_get_namespace"))
+  pFieldGetName = asProc[GetNameFn](sym("mono_field_get_name"))
+  pMethodGetName = asProc[GetNameFn](sym("mono_method_get_name"))
+  pClassGetFields = asProc[IterFn](sym("mono_class_get_fields"))
+  pClassGetMethods = asProc[IterFn](sym("mono_class_get_methods"))
+  pFieldGetType = asProc[FieldGetTypeFn](sym("mono_field_get_type"))
+  pFieldGetFlags = asProc[FieldGetFlagsFn](sym("mono_field_get_flags"))
+  pTypeIsReference = asProc[TypeIsRefFn](sym("mono_type_is_reference"))
+  pFieldGetOffset = asProc[FieldGetOffsetFn](sym("mono_field_get_offset"))
 
 proc corlib*(): MonoImage =
   if gCorlib == nil and pGetCorlib != nil: gCorlib = pGetCorlib()
@@ -166,6 +185,7 @@ proc hasWideChars*(s: ptr UncheckedArray[uint16], len: int): bool =
 proc displayWidth*(s: ptr UncheckedArray[uint16], len: int): int =
   ## Cheap east-asian-width proxy: the wide range counts double, so a CJK translation with
   ## fewer characters is not mistaken for a narrower one.
+  result = 0
   for i in 0 ..< len:
     result += (if s[i] > 0x2E7F'u16: 2 else: 1)
 
@@ -239,7 +259,7 @@ proc translate*(text: MonoString): MonoString =
   if len <= 0 or len > 2048: return nil
   let key = utf16ToUtf8(monoStrChars(text), len)
   let hit = gDict.getOrDefault(key, "")
-  if hit.len == 0: nil else: makeMono(hit)
+  if hit.len == 0: default(MonoString) else: makeMono(hit)
 
 proc getClass*(qname: string): MonoClass =
   if pClassFromName == nil or pClassGetMethod == nil or pRuntimeInvoke == nil or
@@ -251,7 +271,7 @@ proc getClass*(qname: string): MonoClass =
   if mGT == nil: return nil
   let nm = makeMono(qname)
   if nm == nil: return nil
-  var args: array[1, pointer]
+  var args {.noinit.}: array[1, pointer]
   args[0] = nm
   var exc: MonoObject = nil
   let t = pRuntimeInvoke(mGT, nil, cast[ptr UncheckedArray[pointer]](addr args[0]), addr exc)
@@ -262,19 +282,20 @@ proc getClass*(qname: string): MonoClass =
 
 proc methodAddr*(c: MonoClass, name: string, np: int): pointer =
   if c == nil or pClassGetMethod == nil or pCompileMethod == nil: return nil
-  let m = pClassGetMethod(c, name.cstring, cint(np))
+  var n = name
+  let m = pClassGetMethod(c, n.toCString, cint(np))
   if m == nil: return nil
   pCompileMethod(m)
 
 proc fieldGetF32*(o: pointer, f: MonoField): float32 =
   if o == nil or f == nil or pFieldGetValue == nil: return 0'f32
-  var v: float32
+  var v {.noinit.}: float32
   pFieldGetValue(o, f, addr v)
   v
 
 proc fieldGetPtr*(o: pointer, f: MonoField): pointer =
   if o == nil or f == nil or pFieldGetValue == nil: return nil
-  var v: pointer
+  var v {.noinit.}: pointer
   pFieldGetValue(o, f, addr v)
   v
 
@@ -292,7 +313,7 @@ proc pin*(o: MonoObject): MonoGCHandle =
   if o == nil or pGchandleNew == nil: 0'u32 else: pGchandleNew(o, 1)
 
 proc moved*(h: MonoGCHandle): MonoObject =
-  if h == 0'u32 or pGchandleGet == nil: nil else: pGchandleGet(h)
+  if h == 0'u32 or pGchandleGet == nil: default(MonoObject) else: pGchandleGet(h)
 
 proc unpin*(h: MonoGCHandle) =
   if h != 0'u32 and pGchandleFree != nil: pGchandleFree(h)
@@ -331,7 +352,7 @@ const FIELD_STATIC = 0x0010'u32
 proc nameOf*(p: pointer, get: GetNameFn): string =
   if p == nil or get == nil: return "?"
   let c = get(p)
-  if c == nil: "?" else: $c
+  if c == nil: "?" else: fromCString(c)
 
 proc className*(c: MonoClass): string =
   if c == nil: return "nil"
@@ -344,6 +365,7 @@ proc objClassName*(o: MonoObject): string =
 
 proc fieldNames*(c: MonoClass, cap = 128): seq[string] =
   if c == nil or pClassGetFields == nil or pFieldGetName == nil: return @[]
+  result = @[]
   var iter: pointer = nil
   while result.len < cap:
     let f = pClassGetFields(c, addr iter)
@@ -352,6 +374,7 @@ proc fieldNames*(c: MonoClass, cap = 128): seq[string] =
 
 proc methodNames*(c: MonoClass, cap = 256): seq[string] =
   if c == nil or pClassGetMethods == nil or pMethodGetName == nil: return @[]
+  result = @[]
   var iter: pointer = nil
   while result.len < cap:
     let m = pClassGetMethods(c, addr iter)
@@ -370,20 +393,22 @@ proc fieldIsInstanceRef*(f: MonoField): bool =
 proc fieldDeclaredClass*(f: MonoField): MonoClass =
   if f == nil or pFieldGetType == nil or pTypeGetClass == nil: return nil
   let t = pFieldGetType(f)
-  if t == nil: nil else: pTypeGetClass(t)
+  if t == nil: default(MonoClass) else: pTypeGetClass(t)
 
 proc fieldOffset*(c: MonoClass, name: string): int =
   ## Byte offset of an instance field, or -1. Resolved by name so a VD layout change is a
   ## missing field rather than a wrong read.
   if c == nil or pClassGetField == nil or pFieldGetOffset == nil: return -1
-  let f = pClassGetField(c, name.cstring)
+  var n = name
+  let f = pClassGetField(c, n.toCString)
   if f == nil: -1 else: int(pFieldGetOffset(f))
 
 proc readPtrAt*(o: pointer, off: int): pointer =
-  if o == nil or off < 0: nil else: cast[ptr pointer](cast[uint64](o) + uint64(off))[]
+  if o == nil or off < 0: default(pointer)
+  else: cast[ptr pointer](cast[uint64](o) + uint64(off))[]
 
 proc readF32At*(o: pointer, off: int): float32 =
-  if o == nil or off < 0: 0.0
+  if o == nil or off < 0: 0.0'f32
   else: cast[ptr float32](cast[uint64](o) + uint64(off))[]
 
 proc writePtrAt*(o: pointer, off: int, v: pointer) =
@@ -439,7 +464,8 @@ proc staticObject*(c: MonoClass, name: string): MonoObject =
   ## Reads a reference-typed static field, initialising the class so the slot is populated.
   if c == nil or pClassVtable == nil or pRuntimeClassInit == nil or
      pFieldStaticGet == nil or pClassGetField == nil: return nil
-  let f = pClassGetField(c, name.cstring)
+  var n = name
+  let f = pClassGetField(c, n.toCString)
   if f == nil: return nil
   let vt = pClassVtable(domain(), c)
   if vt == nil: return nil
@@ -449,7 +475,7 @@ proc staticObject*(c: MonoClass, name: string): MonoObject =
   v
 
 proc classOf*(o: MonoObject): MonoClass =
-  if o == nil or pObjGetClass == nil: nil else: pObjGetClass(o)
+  if o == nil or pObjGetClass == nil: default(MonoClass) else: pObjGetClass(o)
 
 proc newInstance*(c: MonoClass): MonoObject =
   ## Allocates and runs the default constructor; nil when either entry point is missing.
@@ -482,7 +508,7 @@ proc dictHasKey(dict: MonoObject, unit: uint16): int =
   # pointer, and a zeroed int32 reads correctly whether the key is a char or an int. A uint16
   # would leave the upper half of an int key as stack garbage.
   var key = int32(unit)
-  var args: array[1, pointer]
+  var args {.noinit.}: array[1, pointer]
   args[0] = addr key
   var exc: MonoObject = nil
   let r = pRuntimeInvoke(m, dict, cast[ptr UncheckedArray[pointer]](addr args[0]), addr exc)
@@ -534,7 +560,7 @@ proc pickReplacement*(size: float32): MonoObject =
     let r = int(round(size))
     if r == 30 or r == 32:
       if gGoodMap.hasKey(r):
-        h = gGoodMap[r]
+        h = gGoodMap.getOrDefault(r)
       else:
         var best = gGoodHandle
         var bd = high(int)
@@ -551,5 +577,5 @@ proc pickReplacement*(size: float32): MonoObject =
           mk = k
           h = v
       if h == 0'u32:
-        h = if gGoodMap.hasKey(32): gGoodMap[32] else: gGoodHandle
+        h = if gGoodMap.hasKey(32): gGoodMap.getOrDefault(32) else: gGoodHandle
   moved(h)

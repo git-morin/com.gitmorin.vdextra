@@ -2,11 +2,16 @@
 ## ELF symbol tables - where nil is a normal value rather than an error. Nimony makes
 ## every ptr not-nil by default, so this opts the module back into Nim 2 rules; the
 ## stdlib modules that were ported from Nim do the same.
+##
+## assumeSync goes with it: the resolved entry points are globals written once while the
+## module is loading and only read afterwards, which Nimony's thread-safety analysis cannot
+## see. Its own ioring backends opt out the same way.
 when defined(nimony):
   {.feature: "lenientnils".}
+  {.feature: "assumeSync".}
 
 import std/atomics
-import ../vdlog, ../mono
+import ../vdlog, ../mono, ../compat
 import hook, setup
 
 type
@@ -48,7 +53,7 @@ proc hookObjNew(d: MonoDomain, k: MonoClass): MonoObject {.cdecl.} =
   if orig != nil: orig(d, k) else: nil
 
 proc hookJitInit(name: cstring): MonoDomain {.cdecl.} =
-  logI("jit_init('" & (if name == nil: "?" else: $name) & "') called")
+  logI("jit_init('" & (if name == nil: "?" else: fromCString(name)) & "') called")
   let orig = origAs[JitInitFn](hJitInit)
   result = if orig != nil: orig(name) else: nil
   if result != nil: setDomain(result)
@@ -68,21 +73,30 @@ proc hookRunMain(asmv: pointer, argc: cint, argv: pointer): cint {.cdecl.} =
   let orig = origAs[RunMainFn](hRunMain)
   if orig != nil: orig(asmv, argc, argv) else: -1
 
-hLdstr.replacement = cast[pointer](hookLdstr)
-hObjNew.replacement = cast[pointer](hookObjNew)
-hJitInit.replacement = cast[pointer](hookJitInit)
-hJitExec.replacement = cast[pointer](hookJitExec)
-hRunMain.replacement = cast[pointer](hookRunMain)
+hLdstr.replacement = asPointer(hookLdstr)
+hObjNew.replacement = asPointer(hookObjNew)
+hJitInit.replacement = asPointer(hookJitInit)
+hJitExec.replacement = asPointer(hookJitExec)
+hRunMain.replacement = asPointer(hookRunMain)
+
+## Each hook is installed on its own line rather than looped over an array literal: gathering
+## these ref fields into one crashes nimony 0.6.3 (finalir.nim: `n.stmtKind in {StmtsS, ScopeS}`).
+proc installOne(h: Hook, sym: proc(name: cstring): pointer {.cdecl, gcsafe.}) =
+  var name = h.sym
+  h.installAt(sym(name.toCString))
 
 proc installTriggerHooks*(sym: proc(name: cstring): pointer {.cdecl, gcsafe.}) =
-  let ldstr = sym(hLdstr.sym.cstring)
+  var ldstrSym = hLdstr.sym
+  let ldstr = sym(ldstrSym.toCString)
   if ldstr == nil:
     logE("mono_ldstr_checked not found")
     return
   if not hLdstr.installAt(ldstr):
     logE("ldstr hook failed")
-  for h in [hJitExec, hJitInit, hRunMain]:
-    h.installAt(sym(h.sym.cstring))
-  if not hObjNew.installAt(sym(hObjNew.sym.cstring)):
+  installOne(hJitExec, sym)
+  installOne(hJitInit, sym)
+  installOne(hRunMain, sym)
+  var objNewSym = hObjNew.sym
+  if not hObjNew.installAt(sym(objNewSym.toCString)):
     logE("object_new hook failed")
   logI("mono hooked")

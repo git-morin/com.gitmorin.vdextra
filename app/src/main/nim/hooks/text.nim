@@ -2,8 +2,13 @@
 ## ELF symbol tables - where nil is a normal value rather than an error. Nimony makes
 ## every ptr not-nil by default, so this opts the module back into Nim 2 rules; the
 ## stdlib modules that were ported from Nim do the same.
+##
+## assumeSync goes with it: the resolved entry points are globals written once while the
+## module is loading and only read afterwards, which Nimony's thread-safety analysis cannot
+## see. Its own ioring backends opt out the same way.
 when defined(nimony):
   {.feature: "lenientnils".}
+  {.feature: "assumeSync".}
 
 import ../vdlog, ../mono, hook
 
@@ -43,20 +48,20 @@ proc hookSetFont(tb: pointer, newFont: MonoObject) {.cdecl.} =
   let orig = origAs[SetFontFn](textFeature.setFont)
   if orig != nil: orig(tb, cur)
 
-textFeature.setText = newHook(TEXT_BLOCK, "set_Text", 1, cast[pointer](hookSetText))
-textFeature.setFont = newHook(TEXT_BLOCK, "set_Font", 1, cast[pointer](hookSetFont))
+textFeature.setText = newHook(TEXT_BLOCK, "set_Text", 1, asPointer(hookSetText))
+textFeature.setFont = newHook(TEXT_BLOCK, "set_Font", 1, asPointer(hookSetFont))
 
 method install*(f: TextFeature): bool =
   let tb = getClass(TEXT_BLOCK)
   if tb == nil: return false
   if methodAddr(tb, "set_Text", 1) == nil or methodAddr(tb, "set_Font", 1) == nil: return false
 
-  f.getText = cast[GetTextFn](methodAddr(tb, "get_Text", 0))
+  f.getText = asProc[GetTextFn](methodAddr(tb, "get_Text", 0))
   if not f.setText.install(tb): logE("set_Text hook failed")
   if not f.setFont.install(tb): logE("set_Font hook failed")
 
   let sf = getClass("Xenko.Graphics.SpriteFont, Xenko.Graphics")
-  if sf != nil: getSizeFn = cast[GetSizeFn](methodAddr(sf, "get_Size", 0))
+  if sf != nil: getSizeFn = asProc[GetSizeFn](methodAddr(sf, "get_Size", 0))
 
   let off = getClass("Xenko.Graphics.Font.OfflineRasterizedSpriteFont, Xenko.Graphics")
   if off != nil and pClassGetField != nil:
