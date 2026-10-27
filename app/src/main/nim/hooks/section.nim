@@ -67,7 +67,7 @@ const
   ## template: `library.InstantiateElement<Grid>("itemComputer")`, which is UICloner.Clone.
   ## So our rows are clones of VD's, found by what they contain rather than by name so that a
   ## renamed element cannot silently turn into a missing row.
-  SETTINGS_TAB_CLASS = "SettingsTab"
+  SETTINGS_TAB = "VirtualDesktop.Mobile.SettingsTab, VirtualDesktop.Mobile"
   ROW_SEARCH_DEPTH = 6
   MAX_ROW_LABELS = 4
   MAX_PAGE_BUTTONS = 8
@@ -146,6 +146,7 @@ type
     offGridMain, offRenderer, offLayoutCtx: int
     buttonClass, textClass: MonoClass
     checkBoxClass, sliderClass, stackPanelClass: MonoClass
+    settingsTabClass: MonoClass
     getVisualChildren: GetObjFn
     getChildren: GetObjFn
     setText: SetStrFn
@@ -447,7 +448,7 @@ proc settingsGrid(self: pointer): pointer =
   for i in 0 ..< count:
     let tab = arrayAt(tabs, i)
     if tab == nil: continue
-    if className(classOf(tab)) == SETTINGS_TAB_CLASS:
+    if classOf(tab) == f.settingsTabClass:
       return readPtrAt(tab, f.offPanelGrid)
   nil
 
@@ -720,10 +721,12 @@ method install*(f: SectionFeature): bool =
   f.checkBoxClass = getClass(CHECK_BOX)
   f.sliderClass = getClass(SLIDER)
   f.stackPanelClass = getClass(STACK_PANEL)
+  f.settingsTabClass = getClass(SETTINGS_TAB)
   if cp == nil or ui == nil or f.buttonClass == nil or f.textClass == nil:
     logE("section: a required class is missing")
     return false
-  if f.checkBoxClass == nil or f.sliderClass == nil or f.stackPanelClass == nil:
+  if f.checkBoxClass == nil or f.sliderClass == nil or f.stackPanelClass == nil or
+     f.settingsTabClass == nil:
     logE("section: a row model class is missing; the page will have no rows")
 
   let cloner = getClass(UI_CLONER)
