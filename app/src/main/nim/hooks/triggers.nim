@@ -1,3 +1,10 @@
+## Our code is almost entirely raw interop - Mono object pointers, Dobby trampolines,
+## ELF symbol tables - where nil is a normal value rather than an error. Nimony makes
+## every ptr not-nil by default, so this opts the module back into Nim 2 rules; the
+## stdlib modules that were ported from Nim do the same.
+when defined(nimony):
+  {.feature: "lenientnils".}
+
 import std/atomics
 import ../vdlog, ../mono
 import hook, setup

@@ -1,4 +1,20 @@
+## Our code is almost entirely raw interop - Mono object pointers, Dobby trampolines,
+## ELF symbol tables - where nil is a normal value rather than an error. Nimony makes
+## every ptr not-nil by default, so this opts the module back into Nim 2 rules; the
+## stdlib modules that were ported from Nim do the same.
+when defined(nimony):
+  {.feature: "lenientnils".}
+
 import std/strutils
+
+## `lines` is auto-imported from system in Nim 2 but lives in syncio under Nimony, which also
+## drops parseHexInt in favour of a parseHex that writes through an out parameter.
+when defined(nimony):
+  import std/[syncio, parseutils]
+
+  func parseHexInt(s: string): int =
+    result = 0
+    discard parseHex(s, result)
 
 const
   PT_LOAD = 1'u32
@@ -51,12 +67,15 @@ proc sym*(s: ElfSyms, name: cstring): pointer =
   for i in 0 ..< s.count:
     let e = cast[ptr Elf64Sym](cast[uint64](s.symtab) + uint64(i * s.syment))
     if e.shndx == SHN_UNDEF or e.value == 0: continue
-    if cast[cstring](addr s.strtab[e.name]) == name:
+    if cast[cstring](addr s.strtab[int(e.name)]) == name:
       return cast[pointer](s.bias + e.value)
   nil
 
 proc elfSymsAt*(base: uint64): ElfSyms =
   ## `base` comes from `/proc/self/maps` and may be anything, so every failure answers with a non-ok result rather than raising
+  # Nimony proves `result` is assigned before any path returns; the bare returns below used to
+  # lean on Nim 2 zero-initialising it.
+  result = default(ElfSyms)
   let eh = cast[ptr Elf64Ehdr](base)
   if eh.ident[0] != 0x7f or eh.ident[1] != byte('E') or
      eh.ident[2] != byte('L') or eh.ident[3] != byte('F'):
@@ -106,15 +125,15 @@ proc elfSymsAt*(base: uint64): ElfSyms =
         cast[uint64](buckets) + uint64(nbucket) * 4'u64)
     var last = 0'u32
     for i in 0'u32 ..< nbucket:
-      if buckets[i] > last: last = buckets[i]
+      if buckets[int(i)] > last: last = buckets[int(i)]
     if last >= symoff:
-      while (chain[last - symoff] and 1'u32) == 0: inc last
+      while (chain[int(last - symoff)] and 1'u32) == 0: inc last
       count = int(last) + 1
     else:
       count = int(symoff)
 
   if strtab == nil or symtab == nil or count == 0: return
-  ElfSyms(bias: bias, strtab: strtab, symtab: symtab, count: count, syment: syment)
+  result = ElfSyms(bias: bias, strtab: strtab, symtab: symtab, count: count, syment: syment)
 
 proc residentInstances*(soname: string): seq[LibInstance] =
   ## A device can have several copies of one soname mapped at once (a Quest-customised zygote
@@ -138,7 +157,7 @@ proc residentInstances*(soname: string): seq[LibInstance] =
         result.add LibInstance(base: b, limit: e)
       elif result.len > 0 and e > result[^1].limit:
         result[^1].limit = e
-  except CatchableError:
+  except:
     discard
 
 proc findLiveImage*(soname: string, readyProbe: proc(s: ElfSyms): bool {.nimcall,
@@ -156,6 +175,7 @@ proc findLiveImage*(soname: string, readyProbe: proc(s: ElfSyms): bool {.nimcall
   ##
   ## Asking the image itself whether it is ready is both the "is the runtime up?" test and what
   ## separates the live runtime from a never-initialised copy, so there is no timing to guess.
+  result = default(ElfSyms)
   for inst in residentInstances(soname):
     let s = elfSymsAt(inst.base)
     if not s.ok: continue
