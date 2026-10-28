@@ -9,4 +9,4 @@ srcDir        = "app/src/main/nim"
 bin           = @["vdextra"]
 
 requires "nim >= 2.0.0"
-requires "https://github.com/git-morin/nemo-hooks >= 0.1.0"
+requires "https://github.com/git-morin/nemo-hooks >= 1.0.0"
