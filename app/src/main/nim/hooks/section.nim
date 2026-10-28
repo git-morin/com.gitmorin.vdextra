@@ -487,10 +487,17 @@ proc bindRow(row: pointer, kind: RowKind, setting: Setting) =
   discard pin(control)
   var b = BoundRow(control: control, setting: setting, kind: kind, seen: 0'f32)
   let v = readValue(setting)
+  let before = if kind == rkToggle and f.getToggleState != nil:
+                 f.getToggleState(control) else: -1'i32
   showValue(b, v)
   # Read back rather than trusting the write: a slider clamps, and starting from the clamped
   # value is what stops the first poll from reporting a change the user did not make.
   b.seen = controlValue(b)
+  let after = if kind == rkToggle and f.getToggleState != nil:
+                f.getToggleState(control) else: -1'i32
+  logI("section: bound " & $setting & " want=" & describe(setting, v) &
+       " got=" & describe(setting, b.seen) &
+       (if kind == rkToggle: " rawState " & $before & "->" & $after else: ""))
   f.bound[f.boundCount] = b
   inc f.boundCount
 
@@ -839,6 +846,10 @@ proc pollEntry(self: pointer) {.nimcall.} =
       if abs(v - b.seen) < VALUE_EPSILON: continue
       f.bound[i].seen = v
       writeValue(b.setting, v)
+      # VD paints only what it believes changed and knows nothing about our controls, so
+      # without this the state changes and the screen keeps showing the old one. This is the
+      # same flag a page transition needs, for the same reason.
+      f.redrawFrames = REDRAW_FRAMES
       # A drag reports a change on most frames, so sliders trace at debug level and only the
       # discrete toggles are worth a line in the normal log.
       if b.kind == rkSlider: logD("section: " & $b.setting & " = " & describe(b.setting, v))
@@ -850,8 +861,10 @@ proc pollEntry(self: pointer) {.nimcall.} =
     let btn = f.pageButtons[i]
     if btn == nil: continue
     let held = f.showing and f.getPressed(btn)
-    if held and not f.pageButtonHeld[i]:
-      logI("section: " & f.pageButtonNames[i] & " clicked")
+    if held != f.pageButtonHeld[i]:
+      # Pressing a button swaps its sprite, which needs the same repaint a value change does.
+      f.redrawFrames = REDRAW_FRAMES
+      if held: logI("section: " & f.pageButtonNames[i] & " clicked")
     f.pageButtonHeld[i] = held
 
   syncContent(self)
