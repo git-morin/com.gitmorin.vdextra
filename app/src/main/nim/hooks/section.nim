@@ -3,7 +3,7 @@ include nemohooks/features
 import std/atomics
 import nemohooks
 import nemohooks/backends/mono
-import ../xenko, loadcontent, panelupdate
+import ../xenko, ../settings, loadcontent, panelupdate
 
 ## Feasibility spike: add a VDExtra entry to the control panel's left navigation.
 ##
@@ -100,6 +100,20 @@ const
   ## made every button on the page look dead.
   BUTTON_TEXT_COLOR = 0xFFA0A0A0'u32
 
+  ## Xenko.UI.ToggleState, read off the engine source rather than assumed: Checked is **0** and
+  ## UnChecked is **2**, with Indeterminate between them. Guessing the usual
+  ## indeterminate-first order would have inverted every toggle on the page.
+  TOGGLE_CHECKED = 0'i32
+  TOGGLE_UNCHECKED = 2'i32
+
+  ## A clone carries no event handlers, so a change is noticed by comparing against what we
+  ## last saw rather than by subscribing. Slider values are floats the user drags, so a change
+  ## has to clear a threshold to count - a tick of VD's own is far coarser than this.
+  VALUE_EPSILON = 0.001'f32
+
+  ## One per bound row; the page has far fewer, and overrunning this only drops bindings.
+  MAX_BOUND_ROWS = 24
+
 
 type
   GetBoolFn = proc(self: pointer): bool {.cdecl, gcsafe.}
@@ -112,6 +126,8 @@ type
   AddFn = proc(self: pointer, item: pointer) {.cdecl, gcsafe.}
   VoidFn = proc(self: pointer) {.cdecl, gcsafe.}
   SetStrFn = proc(self: pointer, s: MonoString) {.cdecl, gcsafe.}
+  GetF32Fn = proc(self: pointer): cfloat {.cdecl, gcsafe.}
+  SetF32Fn = proc(self: pointer, v: cfloat) {.cdecl, gcsafe.}
 
   ## VD's own row vocabulary, read off its settings page: a column is a flat list of these.
   ## A CheckBox *is* the row and carries its own caption, so a description has to be a row of
@@ -120,7 +136,15 @@ type
   RowKind = enum
     rkHeader, rkToggle, rkNote, rkSlider, rkButton
 
-  PageRow = tuple[column: int, kind: RowKind, text: string]
+  PageRow = tuple[column: int, kind: RowKind, setting: Setting, text: string]
+
+  ## A row whose control stands for a setting. `seen` is the control's value as of the last
+  ## poll: the user is the only other thing that changes it, so any difference is their edit.
+  BoundRow = object
+    control: pointer
+    setting: Setting
+    kind: RowKind
+    seen: float32
 
   SectionFeature* = ref object of Feature
     enabled*: Atomic[bool]
@@ -134,6 +158,15 @@ type
     pageButtonNames: array[MAX_PAGE_BUTTONS, string]
     pageButtonHeld: array[MAX_PAGE_BUTTONS, bool]
     pageButtonCount: int
+
+    ## The rows that stand for a setting, polled for the user's edits.
+    bound: array[MAX_BOUND_ROWS, BoundRow]
+    boundCount: int
+    getToggleState: GetI32Fn
+    setToggleState: SetI32Fn
+    getSliderValue: GetF32Fn
+    setSliderValue: SetF32Fn
+    setSliderMin, setSliderMax: SetF32Fn
 
     ## VD's own rows, cloned once per row we draw.
     headerModel, toggleModel, noteModel, sliderModel, buttonModel: pointer
@@ -173,33 +206,36 @@ var sectionFeature* = SectionFeature(name: "vdextra section")
 sectionFeature.enabled.store(true)
 
 ## The module's options, laid out in VD's own idiom: a header, the control, and a description
-## indented under it. Display only for now - the captions come from the companion app's option
-## list and nothing is wired to a setting yet, which is why no row reads or writes anything.
-const PAGE_ROWS: array[23, PageRow] = [
-  (0, rkHeader, "VDExtra"),
-  (0, rkToggle, "Fit long settings pages"),
-  (0, rkNote, "Tighten row spacing so a translated page stops hiding its last rows"),
-  (0, rkHeader, "Sound"),
-  (0, rkSlider, "Background music volume"),
-  (0, rkButton, "Background music"),
-  (0, rkToggle, "Disable performance cue sounds"),
-  (0, rkNote, "Mute the cues played when streaming quality changes"),
-  (0, rkHeader, "About"),
-  (0, rkButton, "Version and credits"),
+## indented under it. A row naming a setting other than `stNone` shows that setting's value and
+## writes the user's edit back to it; the rest are captions, or buttons whose action still lives
+## in the companion app.
+const PAGE_ROWS: array[25, PageRow] = [
+  (0, rkHeader, stNone, "VDExtra"),
+  (0, rkToggle, stFit, "Fit long settings pages"),
+  (0, rkNote, stNone, "Tighten row spacing so a translated page stops hiding its last rows"),
+  (0, rkHeader, stNone, "Sound"),
+  (0, rkSlider, stMusicVolume, "Background music volume"),
+  (0, rkButton, stNone, "Background music"),
+  (0, rkToggle, stNoPerfSound, "Disable performance cue sounds"),
+  (0, rkNote, stNone, "Mute the cues played when streaming quality changes"),
+  (0, rkHeader, stNone, "About"),
+  (0, rkButton, stNone, "Version and credits"),
 
-  (1, rkHeader, "Bitrate"),
-  (1, rkToggle, "Extend bitrate range"),
-  (1, rkNote, "Raise the bitrate ceiling above the stock limit"),
-  (1, rkToggle, "Remove auto speed-test bitrate cap"),
-  (1, rkNote, "Skip the bandwidth cap applied after the speed test"),
-  (1, rkHeader, "Network"),
-  (1, rkToggle, "Force LAN discovery"),
-  (1, rkNote, "Still show local PCs even when the server is unreachable"),
-  (1, rkHeader, "Updates"),
-  (1, rkButton, "Update channel"),
-  (1, rkButton, "Check for updates"),
-  (1, rkHeader, "Language"),
-  (1, rkButton, "UI language")
+  (1, rkHeader, stNone, "Bitrate"),
+  (1, rkToggle, stBitrateExtend, "Extend bitrate range"),
+  (1, rkNote, stNone, "Raise the bitrate ceiling above the stock limit"),
+  (1, rkSlider, stBitrateScale, "Bitrate ceiling multiplier"),
+  (1, rkToggle, stBitrateUnlock, "Remove auto speed-test bitrate cap"),
+  (1, rkNote, stNone, "Skip the bandwidth cap applied after the speed test"),
+  (1, rkHeader, stNone, "Network"),
+  (1, rkToggle, stForceLan, "Force LAN discovery"),
+  (1, rkNote, stNone, "Still show local PCs even when the server is unreachable"),
+  (1, rkHeader, stNone, "Updates"),
+  (1, rkButton, stNone, "Update channel"),
+  (1, rkButton, stNone, "Check for updates"),
+  (1, rkHeader, stNone, "Language"),
+  (1, rkButton, stNone, "UI language"),
+  (1, rkNote, stNone, "Changing the language needs VD restarted")
 ]
 
 ## Collection members live on the instance's own generic type, so they are resolved by walking
@@ -403,7 +439,62 @@ proc spaceRow(row: pointer, kind: RowKind) =
   if kind == rkButton and f.toggleModel != nil:
     setMarginAt(row, THICKNESS_LEFT, marginLeft(f.toggleModel))
 
-proc buildRow(kind: RowKind, text: string): pointer =
+## The control a bound row's value lives on: the CheckBox itself for a toggle, the track for a
+## slider. Found by class so a template whose tree VD rearranges still binds.
+proc rowControl(row: pointer, kind: RowKind): pointer =
+  let f = sectionFeature
+  case kind
+  of rkToggle: firstOfClass(row, f.checkBoxClass, 0)
+  of rkSlider: firstOfClass(row, f.sliderClass, 0)
+  else: nil
+
+proc controlValue(b: BoundRow): float32 =
+  let f = sectionFeature
+  case b.kind
+  of rkToggle:
+    if f.getToggleState == nil: 0'f32
+    elif f.getToggleState(b.control) == TOGGLE_CHECKED: 1'f32 else: 0'f32
+  of rkSlider:
+    if f.getSliderValue == nil: 0'f32 else: float32(f.getSliderValue(b.control))
+  else: 0'f32
+
+## Puts the setting's current value on screen. The clone arrives carrying whatever VD's own row
+## showed, so without this a toggle reads as VD's value rather than ours.
+proc showValue(b: BoundRow, v: float32) =
+  let f = sectionFeature
+  case b.kind
+  of rkToggle:
+    if f.setToggleState != nil:
+      f.setToggleState(b.control, if v >= 0.5'f32: TOGGLE_CHECKED else: TOGGLE_UNCHECKED)
+  of rkSlider:
+    # Bounds first: set_Value clamps to them, so a value outside the template's range would be
+    # trimmed on the way in and read back as something the user never chose.
+    let (lo, hi) = bounds(b.setting)
+    if f.setSliderMin != nil: f.setSliderMin(b.control, cfloat(lo))
+    if f.setSliderMax != nil: f.setSliderMax(b.control, cfloat(hi))
+    if f.setSliderValue != nil: f.setSliderValue(b.control, cfloat(v))
+  else: discard
+
+proc bindRow(row: pointer, kind: RowKind, setting: Setting) =
+  let f = sectionFeature
+  if setting == stNone or f.boundCount >= MAX_BOUND_ROWS: return
+  let control = rowControl(row, kind)
+  if control == nil:
+    logE("section: " & $setting & " has no control to bind")
+    return
+  # Pinned for the same reason cloneOf pins a row: the address is held across frames, and
+  # pinning the row does not pin the control nested inside it.
+  discard pin(control)
+  var b = BoundRow(control: control, setting: setting, kind: kind, seen: 0'f32)
+  let v = readValue(setting)
+  showValue(b, v)
+  # Read back rather than trusting the write: a slider clamps, and starting from the clamped
+  # value is what stops the first poll from reporting a change the user did not make.
+  b.seen = controlValue(b)
+  f.bound[f.boundCount] = b
+  inc f.boundCount
+
+proc buildRow(kind: RowKind, text: string, setting: Setting): pointer =
   let f = sectionFeature
   let model = case kind
     of rkHeader: f.headerModel
@@ -414,13 +505,14 @@ proc buildRow(kind: RowKind, text: string): pointer =
   if model == nil: return nil
   result = cloneOf(model)
   if result == nil: return nil
-  # The clone inherits the model's state - a ticked checkbox, a slider part-way along. Nothing
-  # reads a setting yet, so what it shows is VD's value and not ours.
+  # The clone inherits the model's state - a ticked checkbox, a slider part-way along - which
+  # is VD's value, not ours. bindRow overwrites it for the rows that stand for a setting.
   if f.setVisibility != nil: f.setVisibility(result, VISIBILITY_VISIBLE)
   enableRow(result)
   spaceRow(result, kind)
   retextRow(result, text)
   if kind == rkButton: rememberButton(result, text)
+  bindRow(result, kind, setting)
 
 ## The entry is a clone of one of VD's own rather than a button built to look like one, so it
 ## arrives with their padding, height, text size and sprites instead of an approximation of
@@ -540,7 +632,7 @@ proc fillColumn(col: pointer, index: int): int =
   asProc[VoidFn](clear)(kids)
   for spec in PAGE_ROWS:
     if spec.column == index:
-      let row = buildRow(spec.kind, spec.text)
+      let row = buildRow(spec.kind, spec.text, spec.setting)
       if row != nil:
         add(kids, row)
         inc result
@@ -734,6 +826,24 @@ proc pollEntry(self: pointer) {.nimcall.} =
     logI("section: " & SECTION_NAME & " selected")
   f.wasPressed = pressed
 
+  # The bound rows. A clone carries no handlers, so the control is simply compared against
+  # what it read last poll: Xenko toggles a CheckBox and moves a Slider from its own touch
+  # handling, which are virtual overrides rather than the delegates cloning drops - so the
+  # control has already changed itself by the time this sees it, and the only thing left to do
+  # is pass the new value on.
+  if f.showing:
+    for i in 0 ..< f.boundCount:
+      let b = f.bound[i]
+      if b.control == nil: continue
+      let v = controlValue(b)
+      if abs(v - b.seen) < VALUE_EPSILON: continue
+      f.bound[i].seen = v
+      writeValue(b.setting, v)
+      # A drag reports a change on most frames, so sliders trace at debug level and only the
+      # discrete toggles are worth a line in the normal log.
+      if b.kind == rkSlider: logD("section: " & $b.setting & " = " & describe(b.setting, v))
+      else: logI("section: " & $b.setting & " = " & describe(b.setting, v))
+
   # The page's own buttons, read only while the page is up so a press somewhere else cannot be
   # attributed to one of ours.
   for i in 0 ..< f.pageButtonCount:
@@ -866,6 +976,21 @@ method install*(f: SectionFeature): bool =
   f.getVisibility = asProc[GetI32Fn](methodAddr(ui, "get_Visibility", 0))
   f.setEnabled = asProc[SetBoolFn](methodAddr(ui, "set_IsEnabled", 1))
   f.getMouseOver = asProc[GetI32Fn](methodAddr(ui, "get_MouseOverState", 0))
+
+  # State lives on ToggleButton and Value on Slider, both above the classes the rows are found
+  # by, so these walk up rather than asking the leaf class.
+  if f.checkBoxClass != nil:
+    f.getToggleState = asProc[GetI32Fn](methodAddrInherited(f.checkBoxClass, "get_State", 0))
+    f.setToggleState = asProc[SetI32Fn](methodAddrInherited(f.checkBoxClass, "set_State", 1))
+  if f.sliderClass != nil:
+    f.getSliderValue = asProc[GetF32Fn](methodAddrInherited(f.sliderClass, "get_Value", 0))
+    f.setSliderValue = asProc[SetF32Fn](methodAddrInherited(f.sliderClass, "set_Value", 1))
+    f.setSliderMin = asProc[SetF32Fn](methodAddrInherited(f.sliderClass, "set_Minimum", 1))
+    f.setSliderMax = asProc[SetF32Fn](methodAddrInherited(f.sliderClass, "set_Maximum", 1))
+  if f.getToggleState == nil or f.setToggleState == nil:
+    logE("section: ToggleButton::State missing; toggle rows will not reflect or set anything")
+  if f.getSliderValue == nil or f.setSliderValue == nil:
+    logE("section: Slider::Value missing; slider rows will not reflect or set anything")
 
   let gameSystem = getClass(GAME_SYSTEM)
   let vdGame = getClass(VD_GAME)
