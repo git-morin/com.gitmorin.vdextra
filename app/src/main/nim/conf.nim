@@ -58,7 +58,9 @@ proc writeConf*(body: string): bool =
   var text = body
   var ok = true
   if text.len > 0:
-    ok = cWrite(fd, addr text[0], csize_t(text.len)) == text.len
+    # Through toCString rather than `addr text[0]`: Nimony rejects taking the address of a
+    # string's element, and asking for the C string is how both compilers hand over the bytes.
+    ok = cWrite(fd, cast[pointer](text.toCString), csize_t(text.len)) == text.len
   cClose(fd)
   if not ok:
     logE("conf: short write to " & tmp)

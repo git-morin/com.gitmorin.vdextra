@@ -5,6 +5,7 @@ import android.content.Intent
 import android.util.Log
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam
+import java.io.File
 import java.util.zip.ZipFile
 
 class MainModule : XposedModule() {
@@ -29,6 +30,11 @@ class MainModule : XposedModule() {
 
         hookRuntimeInit(param.defaultClassLoader)
 
+        // Written by the in-VD page, which runs as this process and so cannot reach the remote
+        // preferences the companion app owns. Loaded before anything is pushed to native, so a
+        // change made in VR is what this launch uses.
+        LiveConf.load(File("/data/data/" + param.packageName + "/files"))
+
         try {
             var lang = readString(PrefKeys.UI_LANGUAGE, null)
             val fromSystem = lang == null
@@ -37,7 +43,7 @@ class MainModule : XposedModule() {
 
             nativeSetDict(dict.keys.toTypedArray(), dict.values.toTypedArray())
             nativeInit()
-            val musicVolume = readFloat(PrefKeys.MUSIC_VOLUME, 1.0f)
+            val musicVolume = liveFloat(PrefKeys.MUSIC_VOLUME, 1.0f)
             // Hearing music is how a user knows the module took effect without having changed
             // anything, so a source is configured by default.
             val musicPath = readString(PrefKeys.MUSIC_PATH, PrefKeys.MUSIC_DEFAULT)
@@ -47,24 +53,25 @@ class MainModule : XposedModule() {
             nativeSetCustomMusic(custom)
             if (custom) MusicPlayer.start(this, musicPath, musicVolume)
             nativeSetQuality(
-                readBool(PrefKeys.DISABLE_QUALITY_SOUND, false),
+                liveBool(PrefKeys.DISABLE_QUALITY_SOUND, false),
                 readInt(PrefKeys.QUALITY_MASK, 0x7F)
             )
             nativeSetBitrate(
-                readBool(PrefKeys.BITRATE_EXTEND, false),
-                readBool(PrefKeys.BITRATE_UNLOCK, false),
-                readFloat(PrefKeys.BITRATE_SCALE, 2.0f)
+                liveBool(PrefKeys.BITRATE_EXTEND, false),
+                liveBool(PrefKeys.BITRATE_UNLOCK, false),
+                liveFloat(PrefKeys.BITRATE_SCALE, 2.0f)
             )
-            nativeSetForceLan(readBool(PrefKeys.FORCE_LAN, false))
+            nativeSetForceLan(liveBool(PrefKeys.FORCE_LAN, false))
             nativeSetSettingsFit(
-                readBool(PrefKeys.SETTINGS_FIT, true),
-                readFloat(PrefKeys.SETTINGS_FIT_PAD, 16.0f)
+                liveBool(PrefKeys.SETTINGS_FIT, true),
+                liveFloat(PrefKeys.SETTINGS_FIT_PAD, 16.0f)
             )
             requestUpdateCheck()
             log(
                 Log.INFO, TAG,
                 "lang=" + (if (Languages.isOff(lang)) "off" else lang) +
-                    (if (fromSystem) " (system)" else "") + " dict=" + dict.size
+                    (if (fromSystem) " (system)" else "") + " dict=" + dict.size +
+                    " live=" + LiveConf.size()
             )
         } catch (t: Throwable) {
             log(Log.ERROR, TAG, "init failed", t)
@@ -148,6 +155,14 @@ class MainModule : XposedModule() {
         }
         return m
     }
+
+    // The in-VD page wins where it has written a value; everything else still comes from the
+    // companion app, which is what keeps both usable while the page is being filled in.
+    private fun liveBool(key: String, def: Boolean) =
+        if (LiveConf.has(key)) LiveConf.bool(key, def) else readBool(key, def)
+
+    private fun liveFloat(key: String, def: Float) =
+        if (LiveConf.has(key)) LiveConf.float(key, def) else readFloat(key, def)
 
     private fun readString(key: String, def: String?): String? =
         try {

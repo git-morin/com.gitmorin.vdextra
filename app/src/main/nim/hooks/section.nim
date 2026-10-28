@@ -861,6 +861,7 @@ proc pollEntry(self: pointer) {.nimcall.} =
       f.bound[i].seen = v
       if b.valueLabel != nil: setLabel(b.valueLabel, format(b.setting, v))
       writeValue(b.setting, v)
+      markDirty()
       # VD paints only what it believes changed and knows nothing about our controls, so
       # without this the state changes and the screen keeps showing the old one. This is the
       # same flag a page transition needs, for the same reason.
@@ -882,10 +883,15 @@ proc pollEntry(self: pointer) {.nimcall.} =
       if held: logI("section: " & f.pageButtonNames[i] & " clicked")
     f.pageButtonHeld[i] = held
 
+  flushIfSettled()
+
   syncContent(self)
   syncNavHighlight()
   if f.showing != f.wasShowing:
     f.wasShowing = f.showing
+    # Leaving the page is the last chance to save before VD is quit from somewhere else, so a
+    # pending write goes out now rather than waiting for the drag to settle.
+    if not f.showing: flush()
     f.redrawFrames = REDRAW_FRAMES
   pumpRedraw(self)
 

@@ -4,8 +4,9 @@
 ## one the user set, without knowing which feature owns it. Values are carried as float32 in
 ## every case - a toggle is 0 or 1 - because that is what both of VD's controls report.
 ##
-## Nothing here persists. A change takes effect at once and is lost when VD restarts; the
-## companion app is still what writes the preferences read at startup.
+## A change takes effect at once and is also written to VD's data directory, so it survives a
+## restart without the companion app. `conf` does the writing; MainModule reads the file back
+## at startup and feeds it through the JNI setters it already calls.
 include nemohooks/features
 
 ## Nimony has no Atomic[T] of its own; ours lives in the library's compat module.
@@ -13,6 +14,8 @@ when defined(nimony):
   import nemohooks/compat
 
 import std/[atomics, strutils]
+import nemohooks/log
+import conf
 import hooks/[sound, bitrate, fit, forcelan]
 
 type
@@ -70,6 +73,58 @@ proc format*(s: Setting, v: float32): string =
   of stBitrateScale: formatFloat(v, ffDecimal, 1) & "x"
   of stFitPad: $int(v + 0.5'f32)
   else: ""
+
+## The key each setting is stored under. These are the companion app's PrefKeys names, so one
+## file can be read straight into the same preferences rather than needing a mapping.
+proc key*(s: Setting): string =
+  case s
+  of stFit: "settings_fit"
+  of stNoPerfSound: "disable_quality_sound"
+  of stBitrateExtend: "bitrate_extend"
+  of stBitrateUnlock: "bitrate_unlock"
+  of stForceLan: "force_lan"
+  of stMusicVolume: "music_volume"
+  of stBitrateScale: "bitrate_scale"
+  of stFitPad: "settings_fit_pad"
+  of stNone: ""
+
+## Values go out as thousandths of their real value, so the file holds only integers and the
+## reader needs no float parsing - and no decimal separator that a locale could move.
+const SCALE = 1000'f32
+
+## Listed rather than iterated over the enum: Nimony has no `items` for a typedesc, and naming
+## them makes what reaches the file a decision rather than a side effect of the enum's contents.
+const PERSISTED = [stFit, stNoPerfSound, stBitrateExtend, stBitrateUnlock, stForceLan,
+                   stMusicVolume, stBitrateScale, stFitPad]
+
+proc serialise(): string =
+  result = "# vdextra settings, written from the in-VD page; values are x1000\n"
+  for s in PERSISTED:
+    result.add key(s) & "=" & $int(readValue(s) * SCALE + 0.5'f32) & "\n"
+
+var
+  dirty = false
+  idleFrames = 0
+
+## A drag changes the value on most frames, so a write is held back until it settles. 30 frames
+## is a third of a second at VD's 90fps - short enough to survive the panel being closed right
+## after, long enough that one drag is one write rather than ninety.
+const SETTLE_FRAMES = 30
+
+proc markDirty*() =
+  dirty = true
+  idleFrames = 0
+
+proc flush*() =
+  if not dirty: return
+  dirty = false
+  if writeConf(serialise()): logI("settings saved")
+
+## Called every panel tick: writes once the value has stopped moving.
+proc flushIfSettled*() =
+  if not dirty: return
+  inc idleFrames
+  if idleFrames >= SETTLE_FRAMES: flush()
 
 proc describe*(s: Setting, v: float32): string =
   ## For the log line a change writes, so a headset session can be read back from logcat.
