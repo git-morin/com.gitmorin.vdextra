@@ -69,9 +69,10 @@ vendor: # Copy the sibling nemohooks checkout into vendor/, recording the versio
 
 # The sibling checkout shadows the vendored copy locally, so without this a library edit could
 # be committed here, built against locally, and silently not be in what CI compiles.
+# One shell, not two: each recipe line gets its own, so guarding with a separate `test || exit`
+# line would skip nothing and fail every checkout that has no sibling - CI included.
 vendor-check: # Fail if vendor/nemohooks has drifted from the sibling checkout
-	@test -d "$(NEMO_HOOKS)/src" || exit 0
-	@diff -r "$(NEMO_HOOKS)/src" vendor/nemohooks/src >/dev/null 2>&1 || { 	  echo "vendor/nemohooks is out of sync with $(NEMO_HOOKS) (run 'make vendor')"; exit 1; }
+	@if [ -d "$(NEMO_HOOKS)/src" ] && 	    ! diff -r "$(NEMO_HOOKS)/src" vendor/nemohooks/src >/dev/null 2>&1; then 	  echo "vendor/nemohooks is out of sync with $(NEMO_HOOKS) (run 'make vendor')"; exit 1; 	fi
 
 lib-check: # Run the sibling nemohooks checkout's own gate, reusing the Nimony unpacked here
 	@test -d "$(NEMO_HOOKS)/src" || { echo "no nemohooks checkout at $(NEMO_HOOKS)"; exit 1; }
