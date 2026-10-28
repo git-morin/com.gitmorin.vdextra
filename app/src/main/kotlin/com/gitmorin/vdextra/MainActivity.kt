@@ -18,7 +18,6 @@ import android.provider.MediaStore
 import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.View
-import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -32,14 +31,9 @@ import com.google.android.material.card.MaterialCardView
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
-import com.google.android.material.slider.Slider
-import com.google.android.material.textfield.TextInputLayout
 import io.github.libxposed.service.XposedService
 import io.github.libxposed.service.XposedServiceHelper
 import java.io.File
-import java.util.Locale
-import kotlin.math.floor
-import kotlin.math.roundToInt
 
 class MainActivity : AppCompatActivity() {
 
@@ -61,14 +55,8 @@ class MainActivity : AppCompatActivity() {
     private var installSessionId = -1
     private lateinit var homeInfoSystem: LinearLayout
     private lateinit var homeInfoDict: LinearLayout
-    private lateinit var swNoPerf: MaterialSwitch
-    private lateinit var swExtend: MaterialSwitch
-    private lateinit var swUnlock: MaterialSwitch
-    private lateinit var swForceLan: MaterialSwitch
-    private lateinit var swFit: MaterialSwitch
-    private lateinit var slMusicVolume: Slider
-    private lateinit var musicVolumeValue: TextView
     private lateinit var musicSourceValue: TextView
+    private lateinit var soundsValue: TextView
     private lateinit var aboutValue: TextView
     private lateinit var pickMusic: ActivityResultLauncher<Array<String>>
 
@@ -88,36 +76,17 @@ class MainActivity : AppCompatActivity() {
         langValue = findViewById(R.id.lang_value)
         channelValue = findViewById(R.id.channel_value)
         updateValue = findViewById(R.id.update_value)
-        slMusicVolume = findViewById(R.id.sl_music_volume)
-        musicVolumeValue = findViewById(R.id.music_volume_value)
         musicSourceValue = findViewById(R.id.music_source_value)
+        soundsValue = findViewById(R.id.sounds_value)
         aboutValue = findViewById(R.id.about_value)
-        swNoPerf = findViewById(R.id.sw_no_perf)
-        swExtend = findViewById(R.id.sw_extend)
-        swUnlock = findViewById(R.id.sw_unlock)
-        swForceLan = findViewById(R.id.sw_force_lan)
-        swFit = findViewById(R.id.sw_settings_fit)
 
         findViewById<BottomNavigationView>(R.id.bottom_nav).setOnItemSelectedListener { item ->
             showPage(if (item.itemId == R.id.nav_options) 1 else 0)
             true
         }
 
-        slMusicVolume.addOnChangeListener { _, value, _ ->
-            musicVolumeValue.text = getString(R.string.music_volume_format, value.toInt())
-            save(PrefKeys.MUSIC_VOLUME, value / 100f)
-        }
-        swNoPerf.setOnCheckedChangeListener { _, c -> save(PrefKeys.DISABLE_QUALITY_SOUND, c) }
-        swExtend.setOnCheckedChangeListener { _, c -> save(PrefKeys.BITRATE_EXTEND, c) }
-        swUnlock.setOnCheckedChangeListener { _, c -> save(PrefKeys.BITRATE_UNLOCK, c) }
-        swForceLan.setOnCheckedChangeListener { _, c -> save(PrefKeys.FORCE_LAN, c) }
-        swFit.setOnCheckedChangeListener { _, c -> save(PrefKeys.SETTINGS_FIT, c) }
-        swNoPerf.setOnLongClickListener { showSoundDialog(); true }
-        swExtend.setOnLongClickListener { showScaleDialog(); true }
-        findViewById<View>(R.id.row_no_perf).setOnLongClickListener { showSoundDialog(); true }
-        findViewById<View>(R.id.row_extend).setOnLongClickListener { showScaleDialog(); true }
-
         findViewById<View>(R.id.row_music_source).setOnClickListener { showMusicSourceDialog() }
+        findViewById<View>(R.id.row_sounds).setOnClickListener { showSoundDialog() }
         findViewById<View>(R.id.row_about).setOnClickListener { showAboutDialog() }
         findViewById<View>(R.id.row_language).setOnClickListener { showLanguageDialog() }
         findViewById<View>(R.id.row_channel).setOnClickListener { showChannelDialog() }
@@ -249,14 +218,7 @@ class MainActivity : AppCompatActivity() {
         musicSourceValue.text = musicSourceLabel(p)
         aboutValue.text = getString(R.string.about_version_format, version(packageName))
 
-        val vol = (p.getFloat(PrefKeys.MUSIC_VOLUME, 1.0f) * 100f).roundToInt()
-        slMusicVolume.value = vol.coerceIn(0, 100).toFloat()
-        musicVolumeValue.text = getString(R.string.music_volume_format, vol)
-        swNoPerf.isChecked = p.getBoolean(PrefKeys.DISABLE_QUALITY_SOUND, false)
-        swExtend.isChecked = p.getBoolean(PrefKeys.BITRATE_EXTEND, false)
-        swUnlock.isChecked = p.getBoolean(PrefKeys.BITRATE_UNLOCK, false)
-        swForceLan.isChecked = p.getBoolean(PrefKeys.FORCE_LAN, false)
-        swFit.isChecked = p.getBoolean(PrefKeys.SETTINGS_FIT, true)
+        soundsValue.text = cueSummary(p.getInt(PrefKeys.QUALITY_MASK, ALL_CUES))
         binding = false
     }
 
@@ -304,13 +266,20 @@ class MainActivity : AppCompatActivity() {
         return e
     }
 
+    /** How many cues the mask leaves audible, for the row's summary line. */
+    private fun cueSummary(mask: Int): String {
+        var audible = 0
+        for (i in 0 until CUE_COUNT) if ((mask and (1 shl i)) != 0) audible++
+        return audible.toString() + "/" + CUE_COUNT
+    }
+
     private fun showSoundDialog() {
         val v = LayoutInflater.from(this).inflate(R.layout.dialog_sounds, null)
         val ids = intArrayOf(
             R.id.snd0, R.id.snd1, R.id.snd2, R.id.snd3, R.id.snd4, R.id.snd5, R.id.snd6
         )
         val mask = prefs()
-            .getInt(PrefKeys.QUALITY_MASK, 0x7F)
+            .getInt(PrefKeys.QUALITY_MASK, ALL_CUES)
         val sw = ids.mapIndexed { i, id ->
             v.findViewById<MaterialSwitch>(id).apply { isChecked = (mask and (1 shl i)) != 0 }
         }
@@ -322,34 +291,6 @@ class MainActivity : AppCompatActivity() {
                 var m = 0
                 sw.forEachIndexed { i, s -> if (s.isChecked) m = m or (1 shl i) }
                 save(PrefKeys.QUALITY_MASK, m)
-            }
-            .show()
-    }
-
-    private fun showScaleDialog() = showNumberDialog(
-        R.string.dialog_scale_title, R.string.scale_hint,
-        prefs().getFloat(PrefKeys.BITRATE_SCALE, 2.0f), 1f..3f
-    ) { save(PrefKeys.BITRATE_SCALE, it) }
-
-    private fun showNumberDialog(
-        titleRes: Int,
-        hintRes: Int,
-        current: Float,
-        allowed: ClosedFloatingPointRange<Float>,
-        onDone: (Float) -> Unit
-    ) {
-        val v = LayoutInflater.from(this).inflate(R.layout.dialog_scale, null)
-        v.findViewById<TextInputLayout>(R.id.scale_input_layout).setHint(hintRes)
-        val input = v.findViewById<EditText>(R.id.scale_input)
-        input.setText(formatScale(current))
-        MaterialAlertDialogBuilder(this)
-            .setTitle(titleRes)
-            .setView(v)
-            .setPositiveButton(R.string.action_done, null)
-            .setOnDismissListener {
-                // Unparseable input keeps the value that was already there.
-                val s = input.text.toString().trim().toFloatOrNull() ?: current
-                onDone(s.coerceIn(allowed))
             }
             .show()
     }
@@ -658,11 +599,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun formatScale(s: Float): String =
-        if (s == floor(s)) s.toInt().toString()
-        else "%.2f".format(Locale.getDefault(), s)
-
     private companion object {
+        /** Bits in QUALITY_MASK, one per cue hooked in sound.nim; all set means nothing muted. */
+        const val CUE_COUNT = 7
+        const val ALL_CUES = 0x7F
+
         @Volatile
         var service: XposedService? = null
 
