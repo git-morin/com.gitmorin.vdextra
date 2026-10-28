@@ -209,20 +209,21 @@ var sectionFeature* = SectionFeature(name: "vdextra section")
 sectionFeature.enabled.store(true)
 
 ## The module's options, laid out in VD's own idiom: a header, the control, and a description
-## indented under it. A row naming a setting other than `stNone` shows that setting's value and
-## writes the user's edit back to it; the rest are captions, or buttons whose action still lives
-## in the companion app.
-const PAGE_ROWS: array[25, PageRow] = [
+## indented under it. Every control here drives its setting directly.
+##
+## Only settings this page can actually change belong on it. The rest - music source, UI
+## language, update channel, which cue sounds to mute - need Android work no hook can do from
+## inside VD, so they stay in the companion app and are named at the bottom rather than shown
+## as buttons that do nothing when pressed.
+const PAGE_ROWS: array[19, PageRow] = [
   (0, rkHeader, stNone, "VDExtra"),
   (0, rkToggle, stFit, "Fit long settings pages"),
   (0, rkNote, stNone, "Tighten row spacing so a translated page stops hiding its last rows"),
+  (0, rkNote, stNone, "Applied while the panel is built, so restart VD to see this change"),
   (0, rkHeader, stNone, "Sound"),
   (0, rkSlider, stMusicVolume, "Background music volume"),
-  (0, rkButton, stNone, "Background music"),
   (0, rkToggle, stNoPerfSound, "Disable performance cue sounds"),
   (0, rkNote, stNone, "Mute the cues played when streaming quality changes"),
-  (0, rkHeader, stNone, "About"),
-  (0, rkButton, stNone, "Version and credits"),
 
   (1, rkHeader, stNone, "Bitrate"),
   (1, rkToggle, stBitrateExtend, "Extend bitrate range"),
@@ -233,12 +234,8 @@ const PAGE_ROWS: array[25, PageRow] = [
   (1, rkHeader, stNone, "Network"),
   (1, rkToggle, stForceLan, "Force LAN discovery"),
   (1, rkNote, stNone, "Still show local PCs even when the server is unreachable"),
-  (1, rkHeader, stNone, "Updates"),
-  (1, rkButton, stNone, "Update channel"),
-  (1, rkButton, stNone, "Check for updates"),
-  (1, rkHeader, stNone, "Language"),
-  (1, rkButton, stNone, "UI language"),
-  (1, rkNote, stNone, "Changing the language needs VD restarted")
+  (1, rkHeader, stNone, "In the VDExtra app"),
+  (1, rkNote, stNone, "Music source, UI language, update channel and cue sound choice")
 ]
 
 ## Collection members live on the instance's own generic type, so they are resolved by walking

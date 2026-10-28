@@ -92,10 +92,14 @@ proc key*(s: Setting): string =
 ## reader needs no float parsing - and no decimal separator that a locale could move.
 const SCALE = 1000'f32
 
-## Listed rather than iterated over the enum: Nimony has no `items` for a typedesc, and naming
-## them makes what reaches the file a decision rather than a side effect of the enum's contents.
+## Exactly the settings the in-VD page owns, listed rather than iterated over the enum: Nimony
+## has no `items` for a typedesc, and naming them keeps this a decision.
+##
+## A setting the page cannot change must stay out of this file. The reader prefers the file over
+## the companion app's preferences, so persisting one the app still owns would pin it to whatever
+## was saved here and silently ignore every later change made in the app.
 const PERSISTED = [stFit, stNoPerfSound, stBitrateExtend, stBitrateUnlock, stForceLan,
-                   stMusicVolume, stBitrateScale, stFitPad]
+                   stMusicVolume, stBitrateScale]
 
 proc serialise(): string =
   result = "# vdextra settings, written from the in-VD page; values are x1000\n"
