@@ -67,6 +67,26 @@ internal object MusicPlayer {
         }
     }
 
+    /**
+     * Samples the volume the in-VD slider writes and applies it, returning the level now in
+     * effect. Nothing pushes the value here, so it is read on the same tick as the play state
+     * and a drag lands within one poll.
+     */
+    private fun syncVolume(module: MainModule, mp: MediaPlayer?, current: Float): Float {
+        val want = try {
+            module.nativeMusicVolume()
+        } catch (t: Throwable) {
+            return current
+        }
+        if (want == current) return current
+        try {
+            mp?.setVolume(want, want)
+        } catch (t: Throwable) {
+            Log.w(TAG, "custom music volume failed", t)
+        }
+        return want
+    }
+
     private fun run(module: MainModule, source: String, volume: Float) {
         val ctx = awaitContext()
         if (ctx == null) {
@@ -81,12 +101,15 @@ internal object MusicPlayer {
             return
         }
         val stream = isStream(target)
-        var mp: MediaPlayer? = open(target, volume)
+        // Mutable from here on: the in-VD slider moves it, and a reopen after a pause has to
+        // use what it is now rather than what it was when the thread started.
+        var vol = volume
+        var mp: MediaPlayer? = open(target, vol)
         if (mp == null) {
             giveUp(module, ctx)
             return
         }
-        Log.i(TAG, "custom music ready: $target volume=$volume")
+        Log.i(TAG, "custom music ready: $target volume=$vol")
 
         var applied = IDLE
         while (true) {
@@ -99,7 +122,7 @@ internal object MusicPlayer {
                 try {
                     if (want == PLAYING) {
                         // recreated rather than resumed: a paused live buffer comes back stale
-                        if (mp == null) mp = open(target, volume)
+                        if (mp == null) mp = open(target, vol)
                         mp?.let { if (!it.isPlaying) it.start() }
                     } else if (want == PAUSED && mp != null) {
                         if (stream) {
@@ -115,6 +138,7 @@ internal object MusicPlayer {
                     break
                 }
             }
+            vol = syncVolume(module, mp, vol)
             try {
                 Thread.sleep(200)
             } catch (e: InterruptedException) {

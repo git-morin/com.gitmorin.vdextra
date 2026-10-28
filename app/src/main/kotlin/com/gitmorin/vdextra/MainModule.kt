@@ -207,6 +207,8 @@ class MainModule : XposedModule() {
 
     external fun nativeMusicState(): Int
 
+    external fun nativeMusicVolume(): Float
+
     external fun nativeSetQuality(enable: Boolean, mask: Int)
 
     external fun nativeSetBitrate(extend: Boolean, unlock: Boolean, scale: Float)

@@ -45,6 +45,13 @@ proc Java_com_gitmorin_vdextra_MainModule_nativeMusicState(
     env, cls: pointer): int32 {.exportc, cdecl, dynlib.} =
   int32(musicFeature.state.load())
 
+## Polled by the Java player, which owns the audio whenever a custom track is playing: the
+## volume VD's own music system is given goes to zero in that case, so the slider can only
+## reach the sound through here.
+proc Java_com_gitmorin_vdextra_MainModule_nativeMusicVolume(
+    env, cls: pointer): cfloat {.exportc, cdecl, dynlib.} =
+  cfloat(musicFeature.volume.load())
+
 proc Java_com_gitmorin_vdextra_MainModule_nativeSetQuality(
     env, thiz: pointer, enable: bool, mask: int32) {.exportc, cdecl, dynlib.} =
   cueSoundsFeature.enabled.store(enable)
