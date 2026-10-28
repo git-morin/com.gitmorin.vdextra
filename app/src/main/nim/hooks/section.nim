@@ -145,6 +145,9 @@ type
     setting: Setting
     kind: RowKind
     seen: float32
+    ## The label beside a slider's track. VD fills its own from a handler cloning drops, so
+    ## ours is written here or it never changes.
+    valueLabel: pointer
 
   SectionFeature* = ref object of Feature
     enabled*: Atomic[bool]
@@ -462,6 +465,7 @@ proc controlValue(b: BoundRow): float32 =
 ## showed, so without this a toggle reads as VD's value rather than ours.
 proc showValue(b: BoundRow, v: float32) =
   let f = sectionFeature
+  if b.valueLabel != nil: setLabel(b.valueLabel, format(b.setting, v))
   case b.kind
   of rkToggle:
     if f.setToggleState != nil:
@@ -486,6 +490,16 @@ proc bindRow(row: pointer, kind: RowKind, setting: Setting) =
   # pinning the row does not pin the control nested inside it.
   discard pin(control)
   var b = BoundRow(control: control, setting: setting, kind: kind, seen: 0'f32)
+  if kind == rkSlider:
+    var labels {.noinit.}: array[MAX_ROW_LABELS, pointer]
+    var n = 0
+    collectLabels(row, 0, labels, n)
+    # Label zero is the caption retextRow has already written, so the value is the next one.
+    if n >= 2:
+      b.valueLabel = labels[1]
+      discard pin(b.valueLabel) # held across frames, like the control
+    else:
+      logE("section: " & $setting & " slider row has no value label")
   let v = readValue(setting)
   let before = if kind == rkToggle and f.getToggleState != nil:
                  f.getToggleState(control) else: -1'i32
@@ -845,6 +859,7 @@ proc pollEntry(self: pointer) {.nimcall.} =
       let v = controlValue(b)
       if abs(v - b.seen) < VALUE_EPSILON: continue
       f.bound[i].seen = v
+      if b.valueLabel != nil: setLabel(b.valueLabel, format(b.setting, v))
       writeValue(b.setting, v)
       # VD paints only what it believes changed and knows nothing about our controls, so
       # without this the state changes and the screen keeps showing the old one. This is the

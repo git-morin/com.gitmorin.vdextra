@@ -12,7 +12,7 @@ include nemohooks/features
 when defined(nimony):
   import nemohooks/compat
 
-import std/atomics
+import std/[atomics, strutils]
 import hooks/[sound, bitrate, fit, forcelan]
 
 type
@@ -60,6 +60,16 @@ proc writeValue*(s: Setting, v: float32) =
   of stBitrateScale: bitrateFeature.scale.store(v)
   of stFitPad: fitFeature.pad.store(v)
   of stNone: discard
+
+proc format*(s: Setting, v: float32): string =
+  ## What the value label beside a slider's track shows. VD keeps one per slider row and fills
+  ## it from an event handler, which a clone does not carry - so a slider that is not given its
+  ## text here moves but reads as whatever VD's template said.
+  case s
+  of stMusicVolume: $int(v * 100'f32 + 0.5'f32) & "%"
+  of stBitrateScale: formatFloat(v, ffDecimal, 1) & "x"
+  of stFitPad: $int(v + 0.5'f32)
+  else: ""
 
 proc describe*(s: Setting, v: float32): string =
   ## For the log line a change writes, so a headset session can be read back from logcat.
