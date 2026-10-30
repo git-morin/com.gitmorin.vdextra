@@ -19,16 +19,11 @@ NIMONY_VERSION := 0.6.3
 NIMONY_DIR := $(TOOLS_DIR)/nimony-$(NIMONY_VERSION)/nimony
 NIMONY := $(NIMONY_DIR)/bin/nimony.exe
 PNAK := $(NIMONY_DIR)/bin/pnak.exe
-# The nemohooks library this module is built on. TEMPORARY: the library repo is private, so CI
-# cannot resolve the `requires` URL and the sources are vendored under vendor/ instead. Once
-# nemo-hooks goes public, drop the vendor copy and restore the requires line in vdextra.nimble.
-#
-# nim.cfg lists the sibling checkout first and the vendor copy second, so local work builds
-# whatever is in the sibling and CI builds the committed copy. Nimony only honours an absolute
-# --path, so the same two are spelled out here.
+# The nemohooks library this module is built on. nim.cfg points Nim 2 at a sibling checkout;
+# Nimony only honours an absolute --path, which is also what pnak writes into nimony.paths, so
+# the same checkout is passed here spelled out. Override to build against one elsewhere.
 NEMO_HOOKS ?= $(abspath ../nemo-hooks)
-VENDORED := $(abspath vendor/nemohooks)
-NEMO_HOOKS_PATH := $(if $(wildcard $(NEMO_HOOKS)/src),--path:$(NEMO_HOOKS)/src,)                    $(if $(wildcard $(VENDORED)/src),--path:$(VENDORED)/src,)
+NEMO_HOOKS_PATH := $(if $(wildcard $(NEMO_HOOKS)/src),--path:$(NEMO_HOOKS)/src,)
 # --compat makes Nimony read the same nim.cfg Nim 2 uses, so the target is declared once.
 NIMONY_FLAGS := --compat --os:android --cpu:arm64 $(NEMO_HOOKS_PATH)
 KTLINT_JAR := $(TOOLS_DIR)/ktlint-$(KTLINT_VERSION).jar
@@ -41,9 +36,9 @@ JAVA_BIN := $(if $(JAVA_HOME),$(subst \,/,$(JAVA_HOME))/bin/java,java)
 .PHONY: help help-more lint check fmt fmt-check build apk install run ship \
         connect device require-device logs logs-dump tombstones \
         tombstones-clean clean tools kt-check kt-fmt kt-fmt-check \
-        nimony-check nimony-build deps vendor vendor-check lib-check require-nimony
+        nimony-check nimony-build deps lib-check require-nimony
 
-lint: check fmt-check vendor-check kt-check kt-fmt-check ## Lint the Nim, C and Kotlin (needs no Android SDK)
+lint: check fmt-check kt-check kt-fmt-check ## Lint the Nim, C and Kotlin (needs no Android SDK)
 
 check: # Type-check the Nim against the real android target
 	@nim check --hints:off $(NIM_MAIN)
@@ -54,25 +49,9 @@ nimony-check: require-nimony ## Type-check the same sources with Nimony (Nim 3)
 nimony-build: require-nimony # Compile with Nimony; needs an NDK clang on PATH
 	@$(NIMONY) c $(NIMONY_FLAGS) --app:lib --cc:clang $(NIM_MAIN)
 
-deps: vendor ## Refresh the vendored nemohooks copy from the sibling checkout
-	@echo "nemohooks is vendored while its repo is private; see the Makefile header"
-
-vendor: # Copy the sibling nemohooks checkout into vendor/, recording the version it came from
-	@test -d "$(NEMO_HOOKS)/src" || { echo "no nemohooks checkout at $(NEMO_HOOKS)"; exit 1; }
-	@rm -rf vendor/nemohooks
-	@mkdir -p vendor/nemohooks
-	@cp -r "$(NEMO_HOOKS)/src" vendor/nemohooks/src
-	@cp "$(NEMO_HOOKS)/LICENSE" vendor/nemohooks/LICENSE
-	@git -C "$(NEMO_HOOKS)" describe --tags > vendor/nemohooks/VERSION
-	@git -C "$(NEMO_HOOKS)" rev-parse HEAD >> vendor/nemohooks/VERSION
-	@echo "vendored nemohooks $$(head -1 vendor/nemohooks/VERSION)"
-
-# The sibling checkout shadows the vendored copy locally, so without this a library edit could
-# be committed here, built against locally, and silently not be in what CI compiles.
-# One shell, not two: each recipe line gets its own, so guarding with a separate `test || exit`
-# line would skip nothing and fail every checkout that has no sibling - CI included.
-vendor-check: # Fail if vendor/nemohooks has drifted from the sibling checkout
-	@if [ -d "$(NEMO_HOOKS)/src" ] && 	    ! diff -r "$(NEMO_HOOKS)/src" vendor/nemohooks/src >/dev/null 2>&1; then 	  echo "vendor/nemohooks is out of sync with $(NEMO_HOOKS) (run 'make vendor')"; exit 1; 	fi
+deps: require-nimony ## Resolve nemohooks for both compilers: nimble for Nim 2, pnak for Nimony
+	@nimble install -y --depsOnly
+	@$(PNAK) fetch vdextra.nimble
 
 lib-check: # Run the sibling nemohooks checkout's own gate, reusing the Nimony unpacked here
 	@test -d "$(NEMO_HOOKS)/src" || { echo "no nemohooks checkout at $(NEMO_HOOKS)"; exit 1; }

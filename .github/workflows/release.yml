@@ -36,8 +36,13 @@ jobs:
           nim-version: ${{ env.NIM_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # nemohooks is vendored under vendor/ while its repo is private, so there is nothing to
-      # resolve here - nim.cfg points at the committed copy. See the Makefile header.
+
+      # The Nim sources import nemohooks, which is not on the Nim package registry: nimble
+      # resolves the git URL in vdextra.nimble and installs it where `nim` finds it. Locally
+      # nim.cfg points at a sibling checkout instead, so this step has no local equivalent.
+      - name: Install Nim dependencies
+        run: nimble install -y --depsOnly
+
       - name: Type-check Nim
         run: nim check --hints:off app/src/main/nim/vdextra.nim
 
@@ -248,6 +253,12 @@ jobs:
         with:
           nim-version: ${{ env.NIM_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # The Nim sources import nemohooks, which is not on the Nim package registry: nimble
+      # resolves the git URL in vdextra.nimble and installs it where `nim` finds it. Locally
+      # nim.cfg points at a sibling checkout instead, so this step has no local equivalent.
+      - name: Install Nim dependencies
+        run: nimble install -y --depsOnly
 
       - name: Decode signing keystore
         env:
