@@ -232,6 +232,7 @@ type
     offGridMain: int
     buttonClass, textClass: MonoClass
     getFont: GetObjFn
+    setWrap: SetBoolFn
     setTextAlignment: SetI32Fn
     setHorizontalAlignment, setVerticalAlignment: SetI32Fn
     offTextFont: int
@@ -424,11 +425,20 @@ proc collectLabels(el: pointer, depth: int,
 ## Every row kind keeps its caption in its first label, read in tree order: a CheckBox's own
 ## content, a slider row's title above the track, a button's caption, or - for a header or a
 ## description - the row itself, which is already a TextBlock.
+##
+## Every label is also allowed to wrap. VD's descriptions already do, but a toggle's caption
+## does not, and a translation is routinely half as long again as the English - which clips the
+## end of the line against the column's edge. Wrapping is free for text that already fits, so
+## this is applied to all of them rather than guessed at per string: nothing has been measured
+## at this point, so there is no width to compare against.
 proc retextRow(row: pointer, text: string) =
+  let f = sectionFeature
   var labels {.noinit.}: array[MAX_ROW_LABELS, pointer]
   var n = 0
   collectLabels(row, 0, labels, n)
   if n > 0: setLabel(labels[0], text)
+  if f.setWrap != nil:
+    for i in 0 ..< n: f.setWrap(labels[i], true)
 
 ## A template cloned from a row VD had disabled stays disabled - it cannot be pressed and its
 ## caption keeps the dark grey. VD re-enables a control by setting both, so this does too.
@@ -1108,6 +1118,9 @@ method install*(f: SectionFeature): bool =
   f.setText = asProc[SetStrFn](methodAddr(f.textClass, "set_Text", 1))
   f.getFont = asProc[GetObjFn](methodAddr(f.textClass, "get_Font", 0))
   f.setTextAlignment = asProc[SetI32Fn](methodAddr(f.textClass, "set_TextAlignment", 1))
+  f.setWrap = asProc[SetBoolFn](methodAddr(f.textClass, "set_WrapText", 1))
+  if f.setWrap == nil:
+    logE("section: TextBlock::WrapText missing; a long caption will clip instead of wrapping")
   f.setHorizontalAlignment = asProc[SetI32Fn](methodAddr(ui, "set_HorizontalAlignment", 1))
   f.setVerticalAlignment = asProc[SetI32Fn](methodAddr(ui, "set_VerticalAlignment", 1))
   f.offTextFont = fieldOffset(f.textClass, "font")
