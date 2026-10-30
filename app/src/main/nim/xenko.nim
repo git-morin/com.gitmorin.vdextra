@@ -2,9 +2,6 @@
 ## decompiled assemblies rather than guessed.
 include nemohooks/features
 
-## Mono's collection and array layout: a List-like collection keeps its storage behind an
-## items pointer, a managed array *is* the storage, and both report their length at the same
-## offset - so only the element read differs between them.
 const
   LIST_ITEMS* = 16
   LIST_SIZE* = 24
@@ -23,9 +20,6 @@ proc arrayAt*(arr: pointer, i: int): pointer =
   if arr == nil: return nil
   cast[ptr pointer](cast[uint64](arr) + uint64(ARRAY_DATA + i * 8))[]
 
-## Xenko's Thickness stores its edges in this order, which is NOT the CSS one. Read from
-## metadata (Bottom@16 Left@20 Right@24 Top@28, minus the 16-byte header): assuming
-## left/top/right/bottom silently edits the wrong edge and looks almost right.
 const
   THICKNESS_BOTTOM* = 0
   THICKNESS_LEFT* = 1

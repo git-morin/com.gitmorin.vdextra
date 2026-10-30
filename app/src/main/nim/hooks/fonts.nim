@@ -4,7 +4,7 @@ import nemohooks
 import nemohooks/backends/mono
 import ../fontmap
 
-const SER_CAP = 40 ## Serialize calls to watch before giving up on finding a full font.
+const SER_CAP = 40
 
 type
   SerializeFn = proc(x0, x1, x2, x3: pointer) {.cdecl, gcsafe.}

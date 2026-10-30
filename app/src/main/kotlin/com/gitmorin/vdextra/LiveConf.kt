@@ -20,7 +20,6 @@ internal object LiveConf {
 
     private val values = HashMap<String, Int>()
 
-    /** Reads the file if it is there. Any problem leaves the map empty and the prefs in charge. */
     fun load(filesDir: File?) {
         values.clear()
         val f = File(filesDir ?: return, FILE)

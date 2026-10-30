@@ -48,15 +48,11 @@ proc rateMul(): float32 =
   if bitrateFeature.extend.load() and s > 0'f32: s else: 1'f32
 
 proc scaleMax(v: int32): int32 =
-  # Saturates: Nim turns the overflowing conversion the C++ relied on into a fatal Defect.
   let scaled = float64(v) * float64(rateMul())
   if scaled >= float64(high(int32)): high(int32)
   elif scaled <= float64(low(int32)): low(int32)
   else: int32(scaled)
 
-# Max-lookup tables are scaled locally; the sender normalises a tier via k=(max*s-min)/(max-min).
-# JIT inlining can bypass the table hook, so the first outer call probes: hit -> table mode,
-# miss -> scale the outer input by k instead.
 proc kCalc(mn, mx: float32): float32 =
   let s = rateMul()
   if s <= 1'f32: return 1'f32

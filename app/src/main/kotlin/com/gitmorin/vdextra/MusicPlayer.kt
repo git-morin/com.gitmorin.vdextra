@@ -7,9 +7,6 @@ import android.media.MediaPlayer
 import android.util.Log
 import java.io.File
 
-// Runs inside Virtual Desktop. The Mono hooks only record what VD's own music is doing, in an
-// atomic the poll loop below reads, so no audio call ever happens on a Mono thread. The natives
-// come in on the module instance because JNI resolves them under the MainModule class name.
 internal object MusicPlayer {
 
     private const val TAG = "VDExtra"
@@ -48,7 +45,7 @@ internal object MusicPlayer {
                     .build()
             )
             mp.setDataSource(target)
-            mp.isLooping = !isStream(target) // a live stream has no end to loop
+            mp.isLooping = !isStream(target)
             mp.setVolume(volume, volume)
             mp.prepare()
             mp
@@ -67,11 +64,6 @@ internal object MusicPlayer {
         }
     }
 
-    /**
-     * Samples the volume the in-VD slider writes and applies it, returning the level now in
-     * effect. Nothing pushes the value here, so it is read on the same tick as the play state
-     * and a drag lands within one poll.
-     */
     private fun syncVolume(module: MainModule, mp: MediaPlayer?, current: Float): Float {
         val want = try {
             module.nativeMusicVolume()
@@ -101,8 +93,6 @@ internal object MusicPlayer {
             return
         }
         val stream = isStream(target)
-        // Mutable from here on: the in-VD slider moves it, and a reopen after a pause has to
-        // use what it is now rather than what it was when the thread started.
         var vol = volume
         var mp: MediaPlayer? = open(target, vol)
         if (mp == null) {
@@ -121,7 +111,6 @@ internal object MusicPlayer {
             if (want != applied) {
                 try {
                     if (want == PLAYING) {
-                        // recreated rather than resumed: a paused live buffer comes back stale
                         if (mp == null) mp = open(target, vol)
                         mp?.let { if (!it.isPlaying) it.start() }
                     } else if (want == PAUSED && mp != null) {
@@ -148,7 +137,6 @@ internal object MusicPlayer {
         close(mp)
     }
 
-    // Un-mute VD's own track, then tell the app so it can say why.
     private fun giveUp(module: MainModule, ctx: Context?) {
         try {
             module.nativeSetCustomMusic(false)

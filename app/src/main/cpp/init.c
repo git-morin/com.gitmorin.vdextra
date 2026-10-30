@@ -12,8 +12,6 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
   return JNI_VERSION_1_6;
 }
 
-// Only the APK knows its own version, and the in-VD page shows it, so it is handed over as a
-// string the same way the dictionary is: through C, because a jstring needs the JNI env.
 JNIEXPORT void JNICALL Java_com_gitmorin_vdextra_MainModule_nativeSetVersion(JNIEnv* env,
                                                                              jobject thiz,
                                                                              jstring version) {

@@ -22,23 +22,10 @@ const
   UI_ELEMENT = "Xenko.UI.UIElement, Xenko.UI"
   PANEL = "Xenko.UI.Panels.Panel, Xenko.UI"
   TEXT_BLOCK = "Xenko.UI.Controls.TextBlock, Xenko.UI"
-
-
-  ## A column is the settings list; the overlay grids hold a single explicitly sized child.
   MIN_COLUMN_ROWS = 2
-
-  ## Below this a description fits its row whatever the language, so leave VD's choice alone.
   WRAP_MIN_CHARS = 28
   WALK_DEPTH = 6
-
-  ## Wrapping buys correctness but costs height: with it on, the left column measured 980 in the
-  ## 920 it is given, because a few descriptions legitimately gained a line. This pays for that
-  ## out of row spacing rather than out of the translations. Taken from both edges so the gap
-  ## shrinks evenly - 5px off one edge alone only found 35 of the 60px needed, since half the
-  ## rows lead with no top margin at all.
   ROW_TRIM = 4'f32
-
-  ## Edge order comes from mono.nim; Xenko's Thickness is not ordered left/top/right/bottom.
   M_LEFT = THICKNESS_LEFT
   M_TOP = THICKNESS_TOP
   M_BOTTOM = THICKNESS_BOTTOM
@@ -50,7 +37,7 @@ type
 
   FitFeature* = ref object of Feature
     enabled*: Atomic[bool]
-    pad*: Atomic[float32] ## smallest left and top margin a column may end up with
+    pad*: Atomic[float32]
 
     offTabPanels, offPanelGrid, offMargin: int
     getChildren: GetObjFn
@@ -77,18 +64,12 @@ proc setMarginAt(o: pointer, edge: int, v: float32) =
   if o == nil or off < 0: return
   cast[ptr float32](cast[uint64](o) + uint64(off + edge * 4))[] = v
 
-## Spends the column's bottom margin, which is dead space below the list. Row spacing is never
-## touched: taking a slice off every row made the page look cramped and bought little.
 proc reclaim(col: pointer): float32 =
   let b = marginAt(col, M_BOTTOM)
   if b <= 0'f32: return 0'f32
   setMarginAt(col, M_BOTTOM, 0'f32)
   b
 
-## Normalises the left and top margin to `pad` rather than only raising it. The columns start
-## inconsistent - one has a 43px top margin, the other 16 - and levelling them both buys the
-## slack the bottom margins alone do not: 40px left the content exactly 936 tall, with nothing
-## spare for the last row's button. Returns how much height this gave back.
 proc padEdges(col: pointer): float32 =
   let want = fitFeature.pad.load()
   result = marginAt(col, M_TOP) - want
@@ -96,8 +77,6 @@ proc padEdges(col: pointer): float32 =
   setMarginAt(col, M_LEFT, want)
   setMarginAt(col, M_TOP, want)
 
-## Takes `ROW_TRIM` off each row's gap, top and bottom, never below zero. A row whose margin is
-## already smaller gives what it has rather than being pushed into its neighbour.
 proc trimRows(col: pointer): float32 =
   result = 0'f32
   let f = fitFeature
@@ -131,10 +110,6 @@ proc textLength(o: pointer): int =
   if s == nil: return 0
   monoStrLen(s)
 
-## VD sets WrapText on some descriptions and not others. The ones without it render as a single
-## long line that runs over the next control - which English never exposed, because its strings
-## were short enough either way. Turning it on here, before the one measure, lets the row size
-## itself for the wrapped text instead of a translation having to be short enough to fit.
 proc enableWrap(el: pointer, depth: int) =
   let f = fitFeature
   if el == nil or depth > WALK_DEPTH: return
@@ -149,9 +124,6 @@ proc enableWrap(el: pointer, depth: int) =
   for i in 0 ..< n:
     enableWrap(childAt(kids, i), depth + 1)
 
-## Every page gets the same treatment: wrap the descriptions VD left unwrapped, then pay for the
-## height that costs out of the column's own dead space and its row gaps. Pages that already
-## scroll are included - they simply end up needing less scrolling.
 proc fitPage(grid: pointer, label: string) =
   let f = fitFeature
   let cols = f.getChildren(grid)
@@ -165,7 +137,6 @@ proc fitPage(grid: pointer, label: string) =
     if col == nil: continue
     let rows = childCount(f.getChildren(col))
 
-    # The overlay grids are a single explicitly sized child and are not what gets cut off.
     if rows < MIN_COLUMN_ROWS: continue
 
     enableWrap(col, 0)

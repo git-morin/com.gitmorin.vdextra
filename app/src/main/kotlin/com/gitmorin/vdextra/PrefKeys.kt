@@ -2,21 +2,14 @@ package com.gitmorin.vdextra
 
 internal object PrefKeys {
     const val NAME = "vdextra"
-
     const val UI_LANGUAGE = "ui_language"
-
-    /** Trims row spacing so a translated settings page fits instead of hiding its last rows. */
     const val SETTINGS_FIT = "settings_fit"
     const val SETTINGS_FIT_PAD = "settings_fit_pad"
     const val UPDATE_CHANNEL = "update_channel"
     const val LAST_UPDATE_CHECK = "last_update_check"
     const val MUSIC_VOLUME = "music_volume"
     const val MUSIC_PATH = "music_path"
-
-    /** MUSIC_PATH values that are not a file path; absent means MUSIC_DEFAULT. */
     const val MUSIC_VD = "vd"
-
-    /** Nightwave Plaza (https://plaza.one), credited in the about dialog. */
     const val MUSIC_PLAZA = "https://radio.plaza.one/mp3"
     const val MUSIC_DEFAULT = MUSIC_PLAZA
     const val MUSIC_NAME = "music_name"

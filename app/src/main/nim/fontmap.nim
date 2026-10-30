@@ -35,8 +35,6 @@ proc charToGlyph(font: MonoObject): MonoObject =
   fieldGetPtr(font, gDictField)
 
 proc glyphCount*(font: MonoObject): int =
-  ## -1 when the dictionary cannot be inspected at all, which callers treat differently from a
-  ## font that genuinely carries few glyphs.
   if font == nil or gDictField == nil or pFieldGetValue == nil or
      pClassGetMethod == nil: return -1
   let dict = charToGlyph(font)
@@ -53,8 +51,6 @@ proc hasWideChars*(s: ptr UncheckedArray[uint16], len: int): bool =
   false
 
 proc displayWidth*(s: ptr UncheckedArray[uint16], len: int): int =
-  ## Cheap east-asian-width proxy: the wide range counts double, so a CJK translation with
-  ## fewer characters is not mistaken for a narrower one.
   result = 0
   for i in 0 ..< len:
     result += (if s[i] > 0x2E7F'u16: 2 else: 1)
@@ -72,9 +68,6 @@ proc dictHasKey(dict: MonoObject, unit: uint16): int =
     gContainsKeyClass = dc
   let m = gContainsKey
   if m == nil: return -1
-  # Widened deliberately: mono_runtime_invoke reads sizeof(parameter) bytes through this
-  # pointer, and a zeroed int32 reads correctly whether the key is a char or an int. A uint16
-  # would leave the upper half of an int key as stack garbage.
   var key = int32(unit)
   var args {.noinit.}: array[1, pointer]
   args[0] = addr key
@@ -82,8 +75,6 @@ proc dictHasKey(dict: MonoObject, unit: uint16): int =
 
 proc fontCovers*(font: MonoObject, s: ptr UncheckedArray[uint16], len: int): bool =
   if len <= 0: return true
-  # Anything the dictionary cannot answer falls back to the codepoint heuristic this replaced,
-  # so a font that cannot be inspected still behaves as it did before.
   if not isFontClass(font): return not hasWideChars(s, len)
   let dict = charToGlyph(font)
   if dict == nil: return not hasWideChars(s, len)
@@ -100,8 +91,6 @@ proc fontCovers*(font: MonoObject, s: ptr UncheckedArray[uint16], len: int): boo
   true
 
 proc markGood*(f: MonoObject, tag: string) =
-  ## Pins a font with full coverage and files it under its rounded size. Pinned because a
-  ## moving collector would otherwise relocate it between capture and use.
   if f == nil: return
   let g = glyphCount(f)
   if g < FULL: return
@@ -120,9 +109,6 @@ proc goodMapHas*(k: int): bool =
 proc goodFont*(): MonoObject = moved(gGoodHandle)
 
 proc pickReplacement*(size: float32): MonoObject =
-  ## The covering font to use in place of one at `size`. 30 and 32 are the body sizes most of
-  ## the panel's text uses, so those match on size and fall back to the nearest; anything else
-  ## takes the largest captured font that is not 32, which downscales better than it upscales.
   var h: MonoGCHandle = 0
   withLock gMapLock:
     if gGoodHandle == 0'u32: return nil

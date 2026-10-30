@@ -14,8 +14,6 @@ proc dictPut*(key, val: string) =
 proc dictLen*(): int = gDict.len
 
 proc translate*(text: MonoString): MonoString =
-  ## The replacement string, or nil to leave the original alone - which is also the answer for
-  ## anything implausibly long, since set_Text is on a hot path.
   if gDict.len == 0: return nil
   let len = monoStrLen(text)
   if len <= 0 or len > 2048: return nil

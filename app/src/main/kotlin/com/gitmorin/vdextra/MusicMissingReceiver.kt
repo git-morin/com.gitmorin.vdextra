@@ -19,8 +19,6 @@ class MusicMissingReceiver : BroadcastReceiver() {
             .getString(PrefKeys.MUSIC_NAME, null)
         Log.i(TAG, "custom music unreadable, VD music restored (was $name)")
 
-        // The choice is deliberately kept: the file may come back, and the module already falls
-        // back on its own every launch, so there is nothing stale to clear.
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

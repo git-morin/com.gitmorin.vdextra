@@ -9,7 +9,6 @@
 ## at startup and feeds it through the JNI setters it already calls.
 include nemohooks/features
 
-## Nimony has no Atomic[T] of its own; ours lives in the library's compat module.
 when defined(nimony):
   import nemohooks/compat
 
@@ -20,7 +19,7 @@ import hooks/[sound, bitrate, forcelan]
 
 type
   Setting* = enum
-    stNone ## A row with no setting behind it: a header or a description.
+    stNone
     stNoPerfSound
     stBitrateExtend
     stBitrateUnlock
@@ -29,8 +28,6 @@ type
     stBitrateScale
 
 proc bounds*(s: Setting): (float32, float32) =
-  ## The range a slider row is given. These match the clamps the JNI setters apply, so a value
-  ## set here cannot differ from one the companion app could have sent.
   case s
   of stMusicVolume: (0'f32, 1'f32)
   of stBitrateScale: (1'f32, 3'f32)
@@ -58,16 +55,11 @@ proc writeValue*(s: Setting, v: float32) =
   of stNone: discard
 
 proc format*(s: Setting, v: float32): string =
-  ## What the value label beside a slider's track shows. VD keeps one per slider row and fills
-  ## it from an event handler, which a clone does not carry - so a slider that is not given its
-  ## text here moves but reads as whatever VD's template said.
   case s
   of stMusicVolume: $int(v * 100'f32 + 0.5'f32) & "%"
   of stBitrateScale: formatFloat(v, ffDecimal, 1) & "x"
   else: ""
 
-## The key each setting is stored under. These are the companion app's PrefKeys names, so one
-## file can be read straight into the same preferences rather than needing a mapping.
 proc key*(s: Setting): string =
   case s
   of stNoPerfSound: "disable_quality_sound"
@@ -78,16 +70,8 @@ proc key*(s: Setting): string =
   of stBitrateScale: "bitrate_scale"
   of stNone: ""
 
-## Values go out as thousandths of their real value, so the file holds only integers and the
-## reader needs no float parsing - and no decimal separator that a locale could move.
 const SCALE = 1000'f32
 
-## Exactly the settings the in-VD page owns, listed rather than iterated over the enum: Nimony
-## has no `items` for a typedesc, and naming them keeps this a decision.
-##
-## A setting the page cannot change must stay out of this file. The reader prefers the file over
-## the companion app's preferences, so persisting one the app still owns would pin it to whatever
-## was saved here and silently ignore every later change made in the app.
 const PERSISTED = [stNoPerfSound, stBitrateExtend, stBitrateUnlock, stForceLan,
                    stMusicVolume, stBitrateScale]
 
@@ -100,9 +84,6 @@ var
   dirty = false
   idleFrames = 0
 
-## A drag changes the value on most frames, so a write is held back until it settles. 30 frames
-## is a third of a second at VD's 90fps - short enough to survive the panel being closed right
-## after, long enough that one drag is one write rather than ninety.
 const SETTLE_FRAMES = 30
 
 proc markDirty*() =
@@ -114,14 +95,12 @@ proc flush*() =
   dirty = false
   if writeConf(serialise()): logI("settings saved")
 
-## Called every panel tick: writes once the value has stopped moving.
 proc flushIfSettled*() =
   if not dirty: return
   inc idleFrames
   if idleFrames >= SETTLE_FRAMES: flush()
 
 proc describe*(s: Setting, v: float32): string =
-  ## For the log line a change writes, so a headset session can be read back from logcat.
   case s
   of stMusicVolume, stBitrateScale: $v
   of stNone: "-"

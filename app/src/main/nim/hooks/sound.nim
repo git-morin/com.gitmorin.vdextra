@@ -30,26 +30,17 @@ var
   musicFeature* = MusicFeature(name: "music", once: true)
   cueSoundsFeature* = CueSoundsFeature(name: "cue sounds")
 
-# Atomics zero-initialise, and zero here would mute the music the hook is meant to leave
-# alone if MainModule never reaches nativeSetMusicVolume.
 musicFeature.volume.store(1'f32)
 
-# _music is a fresh SoundInstance per track, and Play() only queues the load, so the volume
-# has to be re-applied every time rather than set once.
 proc applyVolume(self: pointer) =
   if self == nil or musicFeature.setVolume == nil or musicFeature.musicField == nil: return
-  # Only trust self once it really is a MusicSystem: a hooked method that turns out to be
-  # static hands us its argument instead, and reading _music off that is a wild pointer.
   if pObjGetClass == nil or musicFeature.cls == nil: return
   if pObjGetClass(self) != musicFeature.cls: return
-  # A custom track plays over VD's, so VD's own goes silent rather than being suppressed:
-  # leaving its Play intact keeps _music alive, so its own fade and pause stay safe.
+
   let v = if musicFeature.custom.load(): 0'f32 else: musicFeature.volume.load()
-  if v >= 1'f32: return # full scale means VD's own level, not a forced 1.0
+  if v >= 1'f32: return
   let inst = fieldGetPtr(self, musicFeature.musicField)
   if inst == nil: return
-  # set_Volume goes straight to xnAudioSourceSetGain with no null check of its own, so the
-  # native source must already exist; it is still null while the track is being loaded.
   if musicFeature.sourceField == nil: return
   if fieldGetPtr(inst, musicFeature.sourceField) == nil: return
   musicFeature.setVolume(inst, cfloat(v))
@@ -81,15 +72,11 @@ proc hookMusicPauseNow(self: pointer) {.cdecl.} =
   if orig != nil: orig(self)
   setState(2, "PauseNow")
 
-# Logged, not acted on: the handler carries no new value, so Play/Pause stay the signal. It is
-# here to show in the log which path a connect actually takes.
 proc hookMusicConnChanged(self, sender, args: pointer) {.cdecl.} =
   let orig = origAs[Void3Fn](musicFeature.connChanged)
   if orig != nil: orig(self, sender, args)
   logI("music OnIsConnectedChanged")
 
-# The music timer is the retry clock: Play lands before the source exists, so the volume is
-# re-attempted here until it sticks.
 proc hookMusicOnTimer(self, state: pointer) {.cdecl.} =
   let orig = origAs[Void2Fn](musicFeature.onTimer)
   if orig != nil: orig(self, state)
@@ -102,7 +89,6 @@ proc hookMusicResume(self: pointer) {.cdecl.} =
     applyVolume(self)
     setState(1, "Resume")
 
-## Each cue needs its own address for Dobby to hook, but they differ only by index.
 proc cueBody(idx: int, self: pointer) =
   if cueSoundsFeature.enabled.load() and (cueSoundsFeature.mask.load() and (1 shl idx)) != 0: return
   let orig = origAs[VoidFn](cueSoundsFeature.cues[idx])
@@ -149,8 +135,6 @@ method install*(f: MusicFeature): bool =
   if si == nil:
     logE("SoundInstance class not found")
     return false
-  # the setter, never the volume field: Xenko pushes gain down to the native audio layer,
-  # so writing the field alone changes nothing audible.
   f.setVolume = asProc[SetFloat1Fn](methodAddr(si, "set_Volume", 1))
   if f.setVolume == nil:
     logE("SoundInstance::set_Volume not found")
@@ -162,8 +146,6 @@ method install*(f: MusicFeature): bool =
   if not f.play.install(cls):
     logE("MusicSystem::Play hook failed")
     return false
-  # Spelled out rather than looped over an array literal: gathering these ref fields into one
-  # crashes nimony 0.6.3 (finalir.nim: `n.stmtKind in {StmtsS, ScopeS}`).
   f.pause.install(cls)
   f.fadeOut.install(cls)
   f.pauseNow.install(cls)

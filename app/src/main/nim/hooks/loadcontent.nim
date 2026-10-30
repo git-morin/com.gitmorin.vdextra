@@ -3,13 +3,6 @@ include nemohooks/features
 import nemohooks
 import nemohooks/backends/mono
 
-## Shared owner of ControlPanel.LoadContent.
-##
-## Several features need to run there - it is the only point before VD's single layout pass,
-## which is what makes injected elements visible to its bounds and depth assignment. Dobby
-## installs one hook per address, so the second feature to ask for the same method silently
-## lost its hook. This owns it instead and fans out to whoever registered.
-
 const CONTROL_PANEL* = "VirtualDesktop.Mobile.ControlPanel, VirtualDesktop.Mobile"
 
 type
@@ -21,7 +14,6 @@ var
   gCallbacks: seq[LoadedCb] = @[]
 
 proc onLoadContent*(cb: LoadedCb) =
-  ## Registered callbacks run after VD has built the panel, in registration order.
   gCallbacks.add cb
 
 proc hookLoadContent(self: pointer) {.cdecl.} =

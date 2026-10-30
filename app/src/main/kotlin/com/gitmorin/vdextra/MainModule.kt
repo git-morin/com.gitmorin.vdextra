@@ -29,10 +29,6 @@ class MainModule : XposedModule() {
         }
 
         hookRuntimeInit(param.defaultClassLoader)
-
-        // Written by the in-VD page, which runs as this process and so cannot reach the remote
-        // preferences the companion app owns. Loaded before anything is pushed to native, so a
-        // change made in VR is what this launch uses.
         LiveConf.load(File("/data/data/" + param.packageName + "/files"))
 
         try {
@@ -45,8 +41,6 @@ class MainModule : XposedModule() {
             nativeSetVersion(BuildConfig.VERSION_NAME)
             nativeInit()
             val musicVolume = liveFloat(PrefKeys.MUSIC_VOLUME, 1.0f)
-            // Hearing music is how a user knows the module took effect without having changed
-            // anything, so a source is configured by default.
             val musicPath = readString(PrefKeys.MUSIC_PATH, PrefKeys.MUSIC_DEFAULT)
                 ?: PrefKeys.MUSIC_DEFAULT
             val custom = PrefKeys.MUSIC_VD != musicPath
@@ -63,9 +57,6 @@ class MainModule : XposedModule() {
                 liveFloat(PrefKeys.BITRATE_SCALE, 2.0f)
             )
             nativeSetForceLan(liveBool(PrefKeys.FORCE_LAN, false))
-            // Read straight from the preferences, never from the in-VD file: the page no
-            // longer owns page fit, so a key left in the file by an older build must not win
-            // over what the app says. Default on.
             nativeSetSettingsFit(
                 readBool(PrefKeys.SETTINGS_FIT, true),
                 readFloat(PrefKeys.SETTINGS_FIT_PAD, 16.0f)
@@ -160,8 +151,6 @@ class MainModule : XposedModule() {
         return m
     }
 
-    // The in-VD page wins where it has written a value; everything else still comes from the
-    // companion app, which is what keeps both usable while the page is being filled in.
     private fun liveBool(key: String, def: Boolean) =
         if (LiveConf.has(key)) LiveConf.bool(key, def) else readBool(key, def)
 
@@ -196,9 +185,6 @@ class MainModule : XposedModule() {
             def
         }
 
-    // Instance methods, not statics: JNI resolves them by the mangled MainModule name either
-    // way, and keeping them off the companion avoids the Companion suffix the mangler would
-    // otherwise look for.
     external fun nativeInit()
 
     external fun nativeCheckMono(): Boolean

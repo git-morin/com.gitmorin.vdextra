@@ -10,8 +10,6 @@ import hooks/[sound, text, fonts, forcelan, bitrate, fit, section]
 
 useBackend(monoBackend())
 
-# Order is load-bearing: font-independent features first so a missing TextBlock cannot
-# stop them, and text before the font-capture features, which need what it resolves.
 registerFeatures(@[
   Feature(cueSoundsFeature), Feature(bitrateFeature), Feature(forceLanFeature), Feature(
       musicFeature),
@@ -45,9 +43,6 @@ proc Java_com_gitmorin_vdextra_MainModule_nativeMusicState(
     env, cls: pointer): int32 {.exportc, cdecl, dynlib.} =
   int32(musicFeature.state.load())
 
-## Polled by the Java player, which owns the audio whenever a custom track is playing: the
-## volume VD's own music system is given goes to zero in that case, so the slider can only
-## reach the sound through here.
 proc Java_com_gitmorin_vdextra_MainModule_nativeMusicVolume(
     env, cls: pointer): cfloat {.exportc, cdecl, dynlib.} =
   cfloat(musicFeature.volume.load())
@@ -86,8 +81,6 @@ proc Java_com_gitmorin_vdextra_MainModule_nativeSetSettingsFit(
 proc vdDictPut(k, v: cstring) {.exportc: "vdDictPut", cdecl, dynlib.} =
   dictPut($k, $v)
 
-## Reached through init.c rather than as a JNI entry point of its own, because converting the
-## jstring needs the env; the dictionary arrives the same way.
 proc vdSetVersion(v: cstring) {.exportc: "vdSetVersion", cdecl, dynlib.} =
   setVersion($v)
   logI("version=" & $v)

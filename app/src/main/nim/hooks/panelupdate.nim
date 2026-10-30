@@ -4,12 +4,6 @@ import nemohooks
 import nemohooks/backends/mono
 import loadcontent
 
-## Shared owner of ControlPanel.Update, the panel's per-frame tick.
-##
-## Same arrangement as loadcontent: Dobby installs one hook per address, so a second feature
-## asking for the same method would silently lose its hook. Features register a callback here
-## instead of hooking it themselves.
-
 type
   UpdateFn = proc(self: pointer, gameTime: pointer) {.cdecl, gcsafe.}
   TickCb* = proc(self: pointer) {.nimcall.}
@@ -33,7 +27,7 @@ proc hookUpdate(self: pointer, gameTime: pointer) {.cdecl.} =
 gHook = newHook(CONTROL_PANEL, "Update", 1, asPointer(hookUpdate))
 
 proc installPanelUpdate*(): bool =
-  if gHook.installed: return true # Idempotency check
+  if gHook.installed: return true
   let cp = getClass(CONTROL_PANEL)
   if cp == nil:
     logE("panelupdate: ControlPanel class not found")

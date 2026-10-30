@@ -5,17 +5,6 @@ import nemohooks
 import nemohooks/backends/mono
 import ../xenko, ../settings, ../fontmap, loadcontent, panelupdate
 
-## Feasibility spike: add a VDExtra entry to the control panel's left navigation.
-##
-## The nav is a StackPanel of Buttons, each wrapping a TextBlock, so an entry is just one more
-## Button appended to it. The work has to happen inside LoadContent because VD measures this
-## layout exactly once - an element added later is never laid out, which is what made the
-## injected scroller invisible to VD's bounds and depth assignment.
-##
-## Styling is copied from an existing nav button rather than invented - its renderer, sprites,
-## font and text size. DependencyProperties is deliberately NOT copied: that would hand two
-## elements one instance, and the panels key their per-child caches by element.
-
 const
   UI_ELEMENT = "Xenko.UI.UIElement, Xenko.UI"
   PANEL = "Xenko.UI.Panels.Panel, Xenko.UI"
@@ -33,118 +22,35 @@ const
   UI_CLONER = "Xenko.Engine.Design.UICloner, Xenko.UI"
 
   SECTION_NAME = "VDEXTRA"
-
-  ## The nav is the one container whose children are *all* buttons. Matching on "holds at least
-  ## four buttons" instead picked the bottom bar first - a Grid of 6 children, 4 of them buttons
-  ## - and appending a child a Grid has no strip data for aborts the game thread inside
-  ## Grid.RebuildMeasureCacheData.
   MIN_NAV_ENTRIES = 4
   NAV_SEARCH_DEPTH = 8
-
-  ## VD paints the active entry white and the rest grey. A fresh TextBlock starts near-white,
-  ## so ours looked permanently selected until it was given the inactive colour.
   TEXT_COLOR_OFFSET = 608
-
-  ## VD's tab grids paint an opaque background; a constructed one is fully transparent, so the
-  ## previous page shows straight through it however often the panel is redrawn.
   BACKGROUND_COLOR_OFFSET = 196
-
-  ## Xenko visibility: 0 Visible, 1 Hidden, 2 Collapsed. VD keeps every tab's grid parented in
-  ## the content cell and simply toggles this, so a new tab is one more sibling to flip.
   VISIBILITY_VISIBLE = 0'i32
   VISIBILITY_HIDDEN = 1'i32
   VISIBILITY_COLLAPSED = 2'i32
-
-  ## Xenko reports no hover as MouseOverState.MouseOverNone; anything else is over the element
-  ## or one of its children, and VD treats both the same way.
   MOUSE_OVER_NONE = 0'i32
-
-  ## A sanity bound on the tab array before it is walked.
   MAX_TABS = 64
-
-  ## How long to keep asking for a full repaint after the page is shown or hidden. One frame
-  ## leaves the previous tab's pixels on screen: VD clears its dirty regions over several
-  ## frames, and a visibility flip made behind its back is not one of them.
   REDRAW_FRAMES = 15
-
-  ## The cell every tab grid occupies in VD's root layout.
   TAB_ROW = 1
   TAB_COLUMN = 1
-
-  ## VD builds none of its settings rows in code - SettingsTab makes 61 FindVisualChildOfType
-  ## calls and not one `new` - so there is no row builder to call into. Every control is
-  ## deserialised from a UI asset, and the way VD itself creates one at runtime is to clone a
-  ## template: `library.InstantiateElement<Grid>("itemComputer")`, which is UICloner.Clone.
-  ## So our rows are clones of VD's, found by what they contain rather than by name so that a
-  ## renamed element cannot silently turn into a missing row.
   SETTINGS_TAB = "VirtualDesktop.Mobile.SettingsTab, VirtualDesktop.Mobile"
   ROW_SEARCH_DEPTH = 6
   MAX_ROW_LABELS = 4
   MAX_PAGE_BUTTONS = 8
-
-  ## A settings column is the list itself; the page's overlay grids hold a single sized child.
   MIN_COLUMN_ROWS = 2
-
-  ## A description is a TextBlock indented under the control it belongs to (VD uses 59); a
-  ## section header is one flush with the column's edge. The indent is what tells them apart.
   NOTE_INDENT = 40.0
-
-  ## Our rows are cloned from templates the fit pass has already trimmed, so they arrive with
-  ## almost no spacing and a description ends up touching the row beneath it. This is the gap
-  ## each row is guaranteed, raised to rather than added, so a row that already has room keeps
-  ## what it was given.
-  ##
-  ## Deliberately looser than what fit leaves VD's own pages with: fit exists to rescue a page
-  ## that does not fit, and this one has half as many rows as the page it is cloned from.
   ROW_GAP = 16.0'f32
-
-  ## The columns arrive with the 16px top margin fit normalised VD's settings page to, which
-  ## puts our first row hard under the top bar. There is room to spare here, so take it.
-  ##
-  ## Applied to the column *and* to its first row: writing the column's own margin alone moved
-  ## nothing on screen, while a row's margin demonstrably works - that is what ROW_GAP uses.
   COLUMN_TOP = 48.0'f32
-
-  ## What VD paints an enabled button's caption (UIColors.ButtonTextColor, 160/160/160). A
-  ## template cloned from a row VD had disabled carries the dark grey instead, which is what
-  ## made every button on the page look dead.
   BUTTON_TEXT_COLOR = 0xFFA0A0A0'u32
-
-  ## Xenko.UI.ToggleState, read off the engine source rather than assumed: Checked is **0** and
-  ## UnChecked is **2**, with Indeterminate between them. Guessing the usual
-  ## indeterminate-first order would have inverted every toggle on the page.
   TOGGLE_CHECKED = 0'i32
   TOGGLE_UNCHECKED = 2'i32
-
-  ## A clone carries no event handlers, so a change is noticed by comparing against what we
-  ## last saw rather than by subscribing. Slider values are floats the user drags, so a change
-  ## has to clear a threshold to count - a tick of VD's own is far coarser than this.
   VALUE_EPSILON = 0.001'f32
-
-  ## One per bound row; the page has far fewer, and overrunning this only drops bindings.
   MAX_BOUND_ROWS = 24
-
-  ## Xenko.Graphics.TextAlignment is Left, Center, Right, so Right is 2. This is the text's
-  ## position *within* the block, and it is still needed once the block itself is pinned: the
-  ## two lines would otherwise sit left-ragged against each other.
   TEXT_ALIGN_RIGHT = 2'i32
-
-  ## The two element alignments do **not** share an order. HorizontalAlignment is
-  ## Left/Center/Right/Stretch, but VerticalAlignment is **Bottom**/Center/Top/Stretch - so
-  ## Bottom is 0, not the 2 that symmetry with Right would suggest. Both read off the engine.
   ALIGN_RIGHT = 2'i32
   ALIGN_BOTTOM = 0'i32
-
-  ## Breathing room from the panel's edges once the credit is pinned to the corner.
   CREDIT_MARGIN = 16.0'f32
-
-  ## The credit, at the end of the right-hand column. Two short lines rather than one long one:
-  ## the column is narrow enough that a single line wraps, and an automatic break lands in the
-  ## middle of the name.
-  ##
-  ## VD's own fonts are per-size sprite sheets that stop at Latin, so the heart is drawn only
-  ## when some font actually carries the glyph - the full-coverage one the font feature captures
-  ## for translations, if it has it. Otherwise the line degrades to "<3" rather than a box.
   HEART = "\u2665"
   HEART_FALLBACK = "<3"
   CREDIT_BY = " by git-morin"
@@ -164,24 +70,16 @@ type
   GetF32Fn = proc(self: pointer): cfloat {.cdecl, gcsafe.}
   SetF32Fn = proc(self: pointer, v: cfloat) {.cdecl, gcsafe.}
 
-  ## VD's own row vocabulary, read off its settings page: a column is a flat list of these.
-  ## A CheckBox *is* the row and carries its own caption, so a description has to be a row of
-  ## its own - which is why our toggle descriptions had nowhere to go when every row was
-  ## assumed to hold two labels.
   RowKind = enum
     rkHeader, rkToggle, rkNote, rkSlider, rkButton
 
   PageRow = tuple[column: int, kind: RowKind, setting: Setting, text: string]
 
-  ## A row whose control stands for a setting. `seen` is the control's value as of the last
-  ## poll: the user is the only other thing that changes it, so any difference is their edit.
   BoundRow = object
     control: pointer
     setting: Setting
     kind: RowKind
     seen: float32
-    ## The label beside a slider's track. VD fills its own from a handler cloning drops, so
-    ## ours is written here or it never changes.
     valueLabel: pointer
 
   SectionFeature* = ref object of Feature
@@ -189,15 +87,10 @@ type
     getPressed: GetBoolFn
     setClickMode: SetI32Fn
     setVisibility: SetI32Fn
-
-    ## Our page's own buttons, pinned, with the press already seen on each so holding one is
-    ## reported once rather than every frame.
     pageButtons: array[MAX_PAGE_BUTTONS, pointer]
     pageButtonNames: array[MAX_PAGE_BUTTONS, string]
     pageButtonHeld: array[MAX_PAGE_BUTTONS, bool]
     pageButtonCount: int
-
-    ## The rows that stand for a setting, polled for the user's edits.
     bound: array[MAX_BOUND_ROWS, BoundRow]
     boundCount: int
     getToggleState: GetI32Fn
@@ -205,12 +98,10 @@ type
     getSliderValue: GetF32Fn
     setSliderValue: SetF32Fn
     setSliderMin, setSliderMax: SetF32Fn
-
-    ## VD's own rows, cloned once per row we draw.
     headerModel, toggleModel, noteModel, sliderModel, buttonModel: pointer
     setEnabled: SetBoolFn
     offMargin: int
-    navEntries: pointer ## VD's nav collection, for the active highlight
+    navEntries: pointer
     activeColor, inactiveColor: uint32
     getVisibility: GetI32Fn
     containerSetObject: SetObj2Fn
@@ -219,16 +110,15 @@ type
     rowKey, columnKey: MonoObject
     offDepProps, offPanelGrid, offTabPanels, offCurrentTab: int
     offForceDrawAll: int
-    content: pointer ## our tab's grid, pinned
+    content: pointer
     showing, wasShowing: bool
     redrawFrames: int
-    entry: pointer ## our nav button, pinned
+    entry: pointer
     wasPressed: bool
     wasOver: bool
     getMouseOver: GetI32Fn
     playClick, playMouseOver: VoidFn
     offGame, offSound: int
-
     offGridMain: int
     buttonClass, textClass: MonoClass
     getFont: GetObjFn
@@ -242,20 +132,13 @@ type
     getVisualChildren: GetObjFn
     getChildren: GetObjFn
     setText: SetStrFn
-    cloneMethod: MonoMethod ## UICloner.Clone - static, one UIElement in, a deep copy out
+    cloneMethod: MonoMethod
     applied: bool
 
 var sectionFeature* = SectionFeature(name: "vdextra section")
 
 sectionFeature.enabled.store(true)
 
-## The module's options, laid out in VD's own idiom: a header, the control, and a description
-## indented under it. Every control here drives its setting directly.
-##
-## Only settings this page can *change* belong on it. Anything that needs Android work no hook
-## can do from inside VD - music source, UI language, update channel, which cue sounds to mute -
-## stays in the companion app, and so does page fit: that one is applied while the panel is
-## built, so a toggle here could not take effect until the next restart anyway.
 const PAGE_ROWS: array[14, PageRow] = [
   (0, rkSlider, stMusicVolume, "Background music volume"),
   (0, rkToggle, stNoPerfSound, "Disable performance cue sounds"),
@@ -274,8 +157,6 @@ const PAGE_ROWS: array[14, PageRow] = [
   (1, rkNote, stNone, "Page fit, music source, UI language, update channel and cue sounds")
 ]
 
-## Collection members live on the instance's own generic type, so they are resolved by walking
-## up from the instance rather than from a class name known ahead of time.
 proc resolveMethod(coll: pointer, name: string, np: int): pointer =
   var k = classOf(coll)
   for _ in 0 ..< 6:
@@ -288,10 +169,6 @@ proc resolveMethod(coll: pointer, name: string, np: int): pointer =
 proc resolveAdd(coll: pointer): AddFn =
   asProc[AddFn](resolveMethod(coll, "Add", 1))
 
-## Matched on the exact class, not on inheritance: CheckBox and Button are siblings under
-## ButtonBase rather than parent and child, so exactness is what separates a toggle row from an
-## action row. LimitSlider derives from Slider for the same reason - only `sldBrightness` is a
-## plain Slider, and that is the row we want as the model.
 proc firstOfClass(el: pointer, cls: MonoClass, depth: int): pointer =
   let f = sectionFeature
   if el == nil or cls == nil or depth > ROW_SEARCH_DEPTH: return nil
@@ -317,9 +194,6 @@ proc isButton(o: pointer): bool =
     k = pClassGetParent(k)
   false
 
-## Identified by structure, not by size: nothing has been measured yet at LoadContent, so every
-## render width still reads zero here. The whole tree is searched and the best match kept rather
-## than the first, because the first container holding several buttons is the bottom bar.
 proc findNavStack(el: pointer, depth: int, best: var pointer, bestCount: var int) =
   let f = sectionFeature
   if el == nil or depth > NAV_SEARCH_DEPTH: return
@@ -330,7 +204,6 @@ proc findNavStack(el: pointer, depth: int, best: var pointer, bestCount: var int
   var buttons = 0
   for i in 0 ..< n:
     if isButton(childAt(kids, i)): inc buttons
-  # Every child a button, and enough of them: that is the tab list and nothing else.
   if buttons == n and buttons >= MIN_NAV_ENTRIES and buttons > bestCount:
     best = el
     bestCount = buttons
@@ -346,9 +219,6 @@ proc setTextColorAt(text: pointer, colour: uint32) =
   if text == nil: return
   cast[ptr uint32](cast[uint64](text) + uint64(TEXT_COLOR_OFFSET))[] = colour
 
-## The inactive colour is whatever most entries share: only one tab is active at a time, so the
-## majority is the inactive shade. Reading it beats hard-coding grey, which would be wrong the
-## moment VD restyles its panel.
 proc inactiveTextColor(entries: pointer, count: int): uint32 =
   result = 0'u32
   var tally {.noinit.}: array[8, tuple[colour: uint32, hits: int]]
@@ -374,21 +244,6 @@ proc inactiveTextColor(entries: pointer, count: int): uint32 =
       bestHits = tally[j].hits
       result = tally[j].colour
 
-## Hands back a deep copy of one of VD's own controls.
-##
-## This replaces constructing a control and copying fields off a sibling. The copy keeps every
-## authored property - sprites, font, text size, margins, chrome - and shares content
-## references rather than duplicating them, which is why a cloned button looks like a VD button
-## where a constructed one looked like bare text. It deliberately does not carry VD's event
-## handlers: delegates are not serialised, so our rows cannot drive VD's settings.
-##
-## Nothing has to be adopted afterwards. RendererManager assigns a Renderer per element during
-## the render walk, and LayoutingContext propagates from the parent the moment the clone is
-## added to Panel.Children - the two fields a constructed control had to borrow.
-## Invoked through mono_runtime_invoke rather than as a compiled thunk so that a throw comes
-## back as an exception object instead of unwinding into native frames and aborting the game.
-## Clone serialises an arbitrary object graph, so it is the one call here that can fail on
-## something VD authored rather than on a mistake of ours.
 proc cloneOf(model: pointer): pointer =
   let f = sectionFeature
   if model == nil or f.cloneMethod == nil or pRuntimeInvoke == nil: return nil
@@ -422,15 +277,6 @@ proc collectLabels(el: pointer, depth: int,
   for i in 0 ..< c:
     collectLabels(childAt(kids, i), depth + 1, found, n)
 
-## Every row kind keeps its caption in its first label, read in tree order: a CheckBox's own
-## content, a slider row's title above the track, a button's caption, or - for a header or a
-## description - the row itself, which is already a TextBlock.
-##
-## Every label is also allowed to wrap. VD's descriptions already do, but a toggle's caption
-## does not, and a translation is routinely half as long again as the English - which clips the
-## end of the line against the column's edge. Wrapping is free for text that already fits, so
-## this is applied to all of them rather than guessed at per string: nothing has been measured
-## at this point, so there is no width to compare against.
 proc retextRow(row: pointer, text: string) =
   let f = sectionFeature
   var labels {.noinit.}: array[MAX_ROW_LABELS, pointer]
@@ -440,8 +286,6 @@ proc retextRow(row: pointer, text: string) =
   if f.setWrap != nil:
     for i in 0 ..< n: f.setWrap(labels[i], true)
 
-## A template cloned from a row VD had disabled stays disabled - it cannot be pressed and its
-## caption keeps the dark grey. VD re-enables a control by setting both, so this does too.
 proc enableRow(row: pointer) =
   let f = sectionFeature
   if f.setEnabled != nil: f.setEnabled(row, true)
@@ -450,8 +294,6 @@ proc enableRow(row: pointer) =
   if f.setEnabled != nil: f.setEnabled(btn, true)
   setTextColorAt(firstTextBlock(btn, 0), BUTTON_TEXT_COLOR)
 
-## Keeps our own buttons so their presses can be polled. A clone carries no Click handler, and
-## that is the only way back to it.
 proc rememberButton(row: pointer, caption: string) =
   let f = sectionFeature
   if f.pageButtonCount >= MAX_PAGE_BUTTONS: return
@@ -474,9 +316,6 @@ proc setMarginAt(el: pointer, edge: int, v: float32) =
 proc marginLeft(el: pointer): float32 =
   marginAt(el, THICKNESS_LEFT)
 
-## VD's button rows sit indented beneath the control they belong to, so a button cloned out of
-## one and stood on its own lands out of line with the toggles. Both edges are settled here:
-## the indent is matched to the toggle template, and every row is given room to breathe.
 proc spaceRow(row: pointer, kind: RowKind) =
   let f = sectionFeature
   if marginAt(row, THICKNESS_BOTTOM) < ROW_GAP:
@@ -484,8 +323,6 @@ proc spaceRow(row: pointer, kind: RowKind) =
   if kind == rkButton and f.toggleModel != nil:
     setMarginAt(row, THICKNESS_LEFT, marginLeft(f.toggleModel))
 
-## The control a bound row's value lives on: the CheckBox itself for a toggle, the track for a
-## slider. Found by class so a template whose tree VD rearranges still binds.
 proc rowControl(row: pointer, kind: RowKind): pointer =
   let f = sectionFeature
   case kind
@@ -503,8 +340,6 @@ proc controlValue(b: BoundRow): float32 =
     if f.getSliderValue == nil: 0'f32 else: float32(f.getSliderValue(b.control))
   else: 0'f32
 
-## Puts the setting's current value on screen. The clone arrives carrying whatever VD's own row
-## showed, so without this a toggle reads as VD's value rather than ours.
 proc showValue(b: BoundRow, v: float32) =
   let f = sectionFeature
   if b.valueLabel != nil: setLabel(b.valueLabel, format(b.setting, v))
@@ -513,8 +348,6 @@ proc showValue(b: BoundRow, v: float32) =
     if f.setToggleState != nil:
       f.setToggleState(b.control, if v >= 0.5'f32: TOGGLE_CHECKED else: TOGGLE_UNCHECKED)
   of rkSlider:
-    # Bounds first: set_Value clamps to them, so a value outside the template's range would be
-    # trimmed on the way in and read back as something the user never chose.
     let (lo, hi) = bounds(b.setting)
     if f.setSliderMin != nil: f.setSliderMin(b.control, cfloat(lo))
     if f.setSliderMax != nil: f.setSliderMax(b.control, cfloat(hi))
@@ -528,26 +361,21 @@ proc bindRow(row: pointer, kind: RowKind, setting: Setting) =
   if control == nil:
     logE("section: " & $setting & " has no control to bind")
     return
-  # Pinned for the same reason cloneOf pins a row: the address is held across frames, and
-  # pinning the row does not pin the control nested inside it.
   discard pin(control)
   var b = BoundRow(control: control, setting: setting, kind: kind, seen: 0'f32)
   if kind == rkSlider:
     var labels {.noinit.}: array[MAX_ROW_LABELS, pointer]
     var n = 0
     collectLabels(row, 0, labels, n)
-    # Label zero is the caption retextRow has already written, so the value is the next one.
     if n >= 2:
       b.valueLabel = labels[1]
-      discard pin(b.valueLabel) # held across frames, like the control
+      discard pin(b.valueLabel)
     else:
       logE("section: " & $setting & " slider row has no value label")
   let v = readValue(setting)
   let before = if kind == rkToggle and f.getToggleState != nil:
                  f.getToggleState(control) else: -1'i32
   showValue(b, v)
-  # Read back rather than trusting the write: a slider clamps, and starting from the clamped
-  # value is what stops the first poll from reporting a change the user did not make.
   b.seen = controlValue(b)
   let after = if kind == rkToggle and f.getToggleState != nil:
                 f.getToggleState(control) else: -1'i32
@@ -557,12 +385,9 @@ proc bindRow(row: pointer, kind: RowKind, setting: Setting) =
   f.bound[f.boundCount] = b
   inc f.boundCount
 
-## Pushed down from Kotlin, which is the only side that knows the APK's version.
 proc setVersion*(v: string) =
   sectionFeature.version = v
 
-## True when `font` can draw every character of `text`. Without this the heart would be a box
-## on any build whose fonts stop at Latin.
 proc fontHas(font: pointer, text: string): bool =
   if font == nil: return false
   var units: seq[uint16] = @[]
@@ -570,9 +395,6 @@ proc fontHas(font: pointer, text: string): bool =
   if units.len == 0: return false
   fontCovers(font, cast[ptr UncheckedArray[uint16]](addr units[0]), units.len)
 
-## The font to draw the credit's heart with, or nil to keep the note's own and spell it "<3".
-## Written as a field rather than through set_Font, which the text feature intercepts and
-## discards.
 proc heartFont(): pointer =
   let f = sectionFeature
   if f.getFont == nil or f.noteModel == nil or f.offTextFont < 0: return nil
@@ -582,11 +404,6 @@ proc heartFont(): pointer =
   if full != nil and fontHas(full, HEART): return full
   nil
 
-## The credit, as a single element pinned to the bottom-right of the page rather than a row at
-## the end of a column - a column's rows stack from the top, so the last one sits wherever the
-## content happens to end rather than in the corner.
-##
-## The note template *is* a TextBlock, so the clone takes the alignments directly.
 proc buildCredit(): pointer =
   let f = sectionFeature
   if f.noteModel == nil: return nil
@@ -606,8 +423,6 @@ proc buildCredit(): pointer =
   if f.setVerticalAlignment != nil: f.setVerticalAlignment(result, ALIGN_BOTTOM)
   if font != nil and f.offTextFont >= 0: writePtrAt(result, f.offTextFont, font)
 
-  # The note template carries the indent that marks it as a description, which would push the
-  # pinned block away from the corner.
   setMarginAt(result, THICKNESS_LEFT, 0'f32)
   setMarginAt(result, THICKNESS_TOP, 0'f32)
   setMarginAt(result, THICKNESS_RIGHT, CREDIT_MARGIN)
@@ -624,8 +439,6 @@ proc buildRow(kind: RowKind, text: string, setting: Setting): pointer =
   if model == nil: return nil
   result = cloneOf(model)
   if result == nil: return nil
-  # The clone inherits the model's state - a ticked checkbox, a slider part-way along - which
-  # is VD's value, not ours. bindRow overwrites it for the rows that stand for a setting.
   if f.setVisibility != nil: f.setVisibility(result, VISIBILITY_VISIBLE)
   enableRow(result)
   spaceRow(result, kind)
@@ -633,20 +446,13 @@ proc buildRow(kind: RowKind, text: string, setting: Setting): pointer =
   if kind == rkButton: rememberButton(result, text)
   bindRow(result, kind, setting)
 
-## The entry is a clone of one of VD's own rather than a button built to look like one, so it
-## arrives with their padding, height, text size and sprites instead of an approximation of
-## them - which is what left ours slightly out of line and the wrong shade.
 proc buildEntry(model: pointer): pointer =
   let f = sectionFeature
   result = cloneOf(model)
   if result == nil: return nil
   setLabel(firstTextBlock(result, 0), SECTION_NAME)
-  # ClickMode 0 is what VD's own entries use; on Release the press is over before a poll sees
-  # it, so get_IsPressed never reports one.
   if f.setClickMode != nil: f.setClickMode(result, 0'i32)
 
-## The odd one out: with a single tab active, the colour that is not the majority is the one VD
-## paints the selected entry with.
 proc activeTextColor(entries: pointer, count: int, inactive: uint32): uint32 =
   for i in 0 ..< count:
     let btn = childAt(entries, i)
@@ -655,12 +461,6 @@ proc activeTextColor(entries: pointer, count: int, inactive: uint32): uint32 =
     if colour != 0'u32 and colour != inactive: return colour
   inactive
 
-## Places the grid in the same cell as VD's own tabs. The row and column live in each
-## element's property container under GridBase's static keys; the boxed values are taken from a
-## real tab rather than created, which avoids boxing an int from native code.
-## Reading these statics runs GridBase's class constructor, so it happens here - on the game
-## thread, inside a managed call - rather than at install time, where Mono aborts the process
-## with a thread-state transition error.
 proc resolveCellKeys() =
   let f = sectionFeature
   if f.rowKey != nil or f.gridBaseClass == nil: return
@@ -679,8 +479,6 @@ proc placeInTabCell(grid, model: pointer) =
     let boxed = f.containerGetItem(theirs, key)
     if boxed != nil: f.containerSetObject(ours, key, boxed)
 
-## The settings page's own grid, found by its tab class rather than by index so a reordered
-## _tabPanels cannot quietly hand back the wrong page.
 proc settingsGrid(self: pointer): pointer =
   let f = sectionFeature
   let tabs = readPtrAt(self, f.offTabPanels)
@@ -694,18 +492,11 @@ proc settingsGrid(self: pointer): pointer =
       return readPtrAt(tab, f.offPanelGrid)
   nil
 
-## A column holds the rows; the page's other children are overlays - the USB prompt, the colour
-## picker, the transparency panel - each a single sized child shown on demand.
 proc isColumn(el: pointer): bool =
   let f = sectionFeature
   if el == nil: return false
   childCount(f.getChildren(el)) >= MIN_COLUMN_ROWS
 
-## Walks every visible row of every column on the settings page. Collapsed rows are skipped:
-## SettingsTab hides the ones this headset does not support, and a hidden template clones into
-## a row that draws nothing.
-## Nimony treats an iterator as noSideEffect unless told otherwise; this one reads the
-## feature's resolved entry points, which are globals.
 iterator settingsRows(grid: pointer): pointer {.sideEffect.} =
   let f = sectionFeature
   if grid != nil:
@@ -721,18 +512,12 @@ iterator settingsRows(grid: pointer): pointer {.sideEffect.} =
             if row != nil and f.getVisibility(row) == VISIBILITY_VISIBLE:
               yield row
 
-## The first row holding a `cls` control. A row is the unit VD's asset styles, so cloning one
-## brings its label, its spacing and its chrome along together - which is what makes our page
-## match theirs without a single measurement being copied.
 proc findRowTemplate(grid: pointer, cls: MonoClass): pointer =
   if cls == nil: return nil
   for row in settingsRows(grid):
     if firstOfClass(row, cls, 0) != nil: return row
   nil
 
-## A bare TextBlock row is either a section header or a description, and only the indent says
-## which: VD flushes headers with the column edge and pushes descriptions in under the control
-## they explain.
 proc findTextTemplate(grid: pointer, indented: bool): pointer =
   let f = sectionFeature
   for row in settingsRows(grid):
@@ -740,7 +525,6 @@ proc findTextTemplate(grid: pointer, indented: bool): pointer =
       return row
   nil
 
-## Fills one emptied column with the rows assigned to it.
 proc fillColumn(col: pointer, index: int): int =
   result = 0
   let f = sectionFeature
@@ -761,18 +545,8 @@ proc fillColumn(col: pointer, index: int): int =
         add(kids, row)
         if firstRow == nil: firstRow = row
         inc result
-  # The column's own margin is not what the first row is placed against, so the row carries it.
   if firstRow != nil: setMarginAt(firstRow, THICKNESS_TOP, COLUMN_TOP)
 
-
-## Builds the tab's content as a clone of VD's own settings page with our rows in place of
-## theirs.
-##
-## Hand-building this was the mistake: a Grid from mono_object_new has no row or column
-## definitions, so every child it holds is measured against a degenerate slot, and the columns
-## came out overlapping whatever width and margins they were given. Cloning the page instead
-## inherits the strip definitions, the background, the cell placement and the two columns'
-## exact geometry, which leaves nothing about the layout for us to get wrong.
 proc buildContent(settings: pointer): pointer =
   let f = sectionFeature
   f.toggleModel = findRowTemplate(settings, f.checkBoxClass)
@@ -800,7 +574,6 @@ proc buildContent(settings: pointer): pointer =
     let child = childAt(kids, i)
     if child == nil: continue
     if not isColumn(child):
-      # An overlay of VD's, with no meaning on our page and nothing to show it.
       if f.setVisibility != nil: f.setVisibility(child, VISIBILITY_COLLAPSED)
       continue
     filled += fillColumn(child, columns)
@@ -808,10 +581,6 @@ proc buildContent(settings: pointer): pointer =
     inc columns
     if columns >= 2: break
 
-  # Added to the page grid, in the same cell as the right-hand column so the grid certainly has
-  # strip data for it - a child placed in a cell a Grid knows nothing about aborts the game
-  # thread inside Grid.RebuildMeasureCacheData. It overlays that column, which is harmless:
-  # the column's rows stop well short of the bottom, which is the space this occupies.
   if lastColumn != nil:
     let credit = buildCredit()
     let addToPage = resolveAdd(kids)
@@ -826,10 +595,6 @@ proc buildContent(settings: pointer): pointer =
   if f.setVisibility != nil: f.setVisibility(page, VISIBILITY_HIDDEN)
   page
 
-## VD plays both of the nav's sounds from handlers a clone does not carry: PlayClick from
-## LeftPanel.OnTabButtonClick, PlayMouseOver from UIPanel.OnElementMouseOverStateChanged. The
-## sound system is reached through the panel rather than cached, since two pointer reads cost
-## nothing and a cached one would have to be pinned against a moving collector.
 proc playCue(self: pointer, cue: VoidFn) =
   let f = sectionFeature
   if cue == nil or f.offGame < 0 or f.offSound < 0: return
@@ -838,8 +603,6 @@ proc playCue(self: pointer, cue: VoidFn) =
   let sound = readPtrAt(game, f.offSound)
   if sound != nil: cue(sound)
 
-## True while the user is pressing one of VD's own nav entries. Watching for this is what lets
-## us step aside even when VD itself will do nothing - see standDown.
 proc vdEntryPressed(): bool =
   let f = sectionFeature
   if f.navEntries == nil or f.getPressed == nil: return false
@@ -850,8 +613,6 @@ proc vdEntryPressed(): bool =
     if btn != nil and btn != f.entry and f.getPressed(btn): return true
   false
 
-## VD drives tab changes from a settings event rather than from the button, so the only way to
-## learn it has switched away from us is to watch one of its own tabs become visible again.
 proc anyVdTabVisible(self: pointer): bool =
   let f = sectionFeature
   let tabs = readPtrAt(self, f.offTabPanels)
@@ -865,14 +626,6 @@ proc anyVdTabVisible(self: pointer): bool =
     if grid != nil and f.getVisibility(grid) == VISIBILITY_VISIBLE: return true
   false
 
-## Shows our page and hides VD's, or the reverse. Exactly one tab is visible at a time, which is
-## the same invariant VD maintains for its own.
-## VD paints the entry for the tab it believes is active and knows nothing about ours, so both
-## sides are driven here: exactly one entry stays lit, whoever owns the page.
-## VD's rule, from LeftPanel.UpdateTabButtonColors: an entry is white when it is the selected
-## tab *or* the pointer is over it, and grey otherwise. Repeating the hover half matters -
-## while our page owns the panel we repaint VD's entries every frame, and painting them flatly
-## grey wiped out the highlight VD had just given the one under the pointer.
 proc navColor(btn: pointer, selected: bool): uint32 =
   let f = sectionFeature
   if selected: return f.activeColor
@@ -890,19 +643,11 @@ proc syncNavHighlight() =
     if btn == nil: continue
     let text = firstTextBlock(btn, 0)
     if text == nil: continue
-    # Entries VD does not know are ours are left alone unless our page owns the panel: while it
-    # does, VD still paints its own idea of which tab is selected, and this overrides it.
     if btn == f.entry:
       setTextColorAt(text, navColor(btn, f.showing))
     elif f.showing:
       setTextColorAt(text, navColor(btn, false))
 
-## Hands the panel back to VD.
-##
-## Simply clearing the flag is not enough. OnSelectedTabChanged is the only thing that ever
-## makes a tab grid visible, and it runs only when SelectedTab actually *changes* - so picking
-## the tab that was open before ours raises no event, and the page VD believes is up stays
-## hidden behind ours. Whichever tab VD still considers current is shown explicitly here.
 proc standDown(self: pointer) =
   let f = sectionFeature
   if not f.showing: return
@@ -932,25 +677,15 @@ proc syncContent(self: pointer) =
       f.setVisibility(grid, VISIBILITY_HIDDEN)
   f.setVisibility(f.content, VISIBILITY_VISIBLE)
 
-## VD repaints only the regions it believes changed, so a visibility flip made behind its back
-## leaves the previous tab's pixels on screen. This is the same flag the settings scroller
-## needed, held for several frames because one is not enough to clear the old page.
 proc pumpRedraw(self: pointer) =
   let f = sectionFeature
   if f.redrawFrames <= 0 or f.offForceDrawAll < 0: return
   writeBoolAt(self, f.offForceDrawAll, true)
   dec f.redrawFrames
 
-## The press is read from our own button each frame rather than hooked. Detouring OnClick
-## reached every button in the panel - it is inherited from ButtonBase - and a bad trampoline
-## there took VD's whole navigation down with SIGILL. Polling touches nothing but our entry.
 proc pollEntry(self: pointer) {.nimcall.} =
   let f = sectionFeature
   if f.entry == nil or f.getPressed == nil or f.getVisibility == nil: return
-
-  # Checked before our own click is handled: on the frame we are selected, VD's tab is still
-  # visible because syncContent has not run yet, and testing first would cancel the selection
-  # immediately.
   if f.showing and anyVdTabVisible(self):
     f.showing = false
   elif f.showing and vdEntryPressed():
@@ -967,11 +702,6 @@ proc pollEntry(self: pointer) {.nimcall.} =
     logI("section: " & SECTION_NAME & " selected")
   f.wasPressed = pressed
 
-  # The bound rows. A clone carries no handlers, so the control is simply compared against
-  # what it read last poll: Xenko toggles a CheckBox and moves a Slider from its own touch
-  # handling, which are virtual overrides rather than the delegates cloning drops - so the
-  # control has already changed itself by the time this sees it, and the only thing left to do
-  # is pass the new value on.
   if f.showing:
     for i in 0 ..< f.boundCount:
       let b = f.bound[i]
@@ -982,23 +712,15 @@ proc pollEntry(self: pointer) {.nimcall.} =
       if b.valueLabel != nil: setLabel(b.valueLabel, format(b.setting, v))
       writeValue(b.setting, v)
       markDirty()
-      # VD paints only what it believes changed and knows nothing about our controls, so
-      # without this the state changes and the screen keeps showing the old one. This is the
-      # same flag a page transition needs, for the same reason.
       f.redrawFrames = REDRAW_FRAMES
-      # A drag reports a change on most frames, so sliders trace at debug level and only the
-      # discrete toggles are worth a line in the normal log.
       if b.kind == rkSlider: logD("section: " & $b.setting & " = " & describe(b.setting, v))
       else: logI("section: " & $b.setting & " = " & describe(b.setting, v))
 
-  # The page's own buttons, read only while the page is up so a press somewhere else cannot be
-  # attributed to one of ours.
   for i in 0 ..< f.pageButtonCount:
     let btn = f.pageButtons[i]
     if btn == nil: continue
     let held = f.showing and f.getPressed(btn)
     if held != f.pageButtonHeld[i]:
-      # Pressing a button swaps its sprite, which needs the same repaint a value change does.
       f.redrawFrames = REDRAW_FRAMES
       if held: logI("section: " & f.pageButtonNames[i] & " clicked")
     f.pageButtonHeld[i] = held
@@ -1009,8 +731,6 @@ proc pollEntry(self: pointer) {.nimcall.} =
   syncNavHighlight()
   if f.showing != f.wasShowing:
     f.wasShowing = f.showing
-    # Leaving the page is the last chance to save before VD is quit from somewhere else, so a
-    # pending write goes out now rather than waiting for the drag to settle.
     if not f.showing: flush()
     f.redrawFrames = REDRAW_FRAMES
   pumpRedraw(self)
@@ -1030,13 +750,7 @@ proc onPanelLoaded(self: pointer) {.nimcall.} =
     logI("section: nav stack not found")
     return
   f.applied = true
-
-  # Panel.Children, not VisualChildren: MeasureOverride and ArrangeOverride iterate Children,
-  # so an element added only to the visual tree draws but is never measured, arranged or
-  # hit-tested - which is exactly 0x0 size, wrong position, and no response to clicks.
   let entries = f.getChildren(stack)
-  # Not entry zero: VD's first nav button is 89 tall against the others' 81, so a clone of it
-  # stands out by the difference. Any later one is a typical entry.
   let model = childAt(entries, min(1, childCount(entries) - 1))
   if model == nil:
     logI("section: nav has no entry to copy")
@@ -1060,9 +774,6 @@ proc onPanelLoaded(self: pointer) {.nimcall.} =
 
   add(entries, entry)
   f.entry = entry
-
-  # The tab's own content: a sibling of VD's tab grids in the same cell, hidden until the entry
-  # is chosen. VD keeps all of them parented and just toggles visibility.
   let settings = settingsGrid(self)
   if settings == nil:
     logE("section: settings page not found, there is nothing to clone")
@@ -1141,8 +852,6 @@ method install*(f: SectionFeature): bool =
   f.setEnabled = asProc[SetBoolFn](methodAddr(ui, "set_IsEnabled", 1))
   f.getMouseOver = asProc[GetI32Fn](methodAddr(ui, "get_MouseOverState", 0))
 
-  # State lives on ToggleButton and Value on Slider, both above the classes the rows are found
-  # by, so these walk up rather than asking the leaf class.
   if f.checkBoxClass != nil:
     f.getToggleState = asProc[GetI32Fn](methodAddrInherited(f.checkBoxClass, "get_State", 0))
     f.setToggleState = asProc[SetI32Fn](methodAddrInherited(f.checkBoxClass, "set_State", 1))
