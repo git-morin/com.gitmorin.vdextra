@@ -338,5 +338,19 @@
   "Custom": "Personnalisé",
   "H.264": "H.264",
   "Auto": "Auto",
-  "PC": "PC"
+  "PC": "PC",
+  "Background music volume": "Volume de la musique de fond",
+  "Disable performance cue sounds": "Désactiver les sons de performance",
+  "Mute the cues played when streaming quality changes": "Couper les sons joués quand la qualité du streaming change",
+  "Extend bitrate range": "Étendre la plage de débit",
+  "Raise the bitrate ceiling above the stock limit": "Relever le plafond de débit au-delà de la limite d'origine",
+  "Bitrate ceiling multiplier": "Multiplicateur du plafond de débit",
+  "Remove auto speed-test bitrate cap": "Supprimer le plafond de débit du test de vitesse",
+  "Skip the bandwidth cap applied after the speed test": "Ignorer la limite de bande passante appliquée après le test de vitesse",
+  "Network": "Réseau",
+  "Force LAN discovery": "Forcer la découverte LAN",
+  "Still show local PCs even when the server is unreachable": "Afficher les PC locaux même si le serveur est injoignable",
+  "In the VDExtra app": "Dans l'application VDExtra",
+  "Page fit, music source, UI language, update channel and cue sounds": "Ajustement des pages, source de la musique, langue, canal de mise à jour et sons",
+  "Made with <3 by git-morin": "Fait avec <3 par git-morin"
 }

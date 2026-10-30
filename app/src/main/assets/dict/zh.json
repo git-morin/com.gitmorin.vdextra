@@ -338,5 +338,19 @@
   "Custom": "自定义",
   "H.264": "H.264",
   "Auto": "自动",
-  "PC": "电脑"
+  "PC": "电脑",
+  "Background music volume": "背景音乐音量",
+  "Disable performance cue sounds": "禁用性能提示音",
+  "Mute the cues played when streaming quality changes": "串流质量变化时静音提示音",
+  "Extend bitrate range": "扩展码率范围",
+  "Raise the bitrate ceiling above the stock limit": "将码率上限提高到原始限制以上",
+  "Bitrate ceiling multiplier": "码率上限倍数",
+  "Remove auto speed-test bitrate cap": "移除测速后的码率上限",
+  "Skip the bandwidth cap applied after the speed test": "跳过测速后施加的带宽限制",
+  "Network": "网络",
+  "Force LAN discovery": "强制局域网发现",
+  "Still show local PCs even when the server is unreachable": "服务器不可用时仍显示局域网中的电脑",
+  "In the VDExtra app": "在 VDExtra 应用中",
+  "Page fit, music source, UI language, update channel and cue sounds": "页面适配、音乐来源、界面语言、更新通道和提示音",
+  "Made with <3 by git-morin": "由 git-morin 用 <3 制作"
 }
