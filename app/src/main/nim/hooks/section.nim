@@ -100,6 +100,9 @@ const
 
   ## The columns arrive with the 16px top margin fit normalised VD's settings page to, which
   ## puts our first row hard under the top bar. There is room to spare here, so take it.
+  ##
+  ## Applied to the column *and* to its first row: writing the column's own margin alone moved
+  ## nothing on screen, while a row's margin demonstrably works - that is what ROW_GAP uses.
   COLUMN_TOP = 48.0'f32
 
   ## What VD paints an enabled button's caption (UIColors.ButtonTextColor, 160/160/160). A
@@ -735,14 +738,21 @@ proc fillColumn(col: pointer, index: int): int =
   let clear = resolveMethod(kids, "Clear", 0)
   let add = resolveAdd(kids)
   if clear == nil or add == nil: return 0
+  let wasTop = marginAt(col, THICKNESS_TOP)
   setMarginAt(col, THICKNESS_TOP, COLUMN_TOP)
+  logI("section: column " & $index & " top margin " & $wasTop & " -> " &
+       $marginAt(col, THICKNESS_TOP))
   asProc[VoidFn](clear)(kids)
+  var firstRow: pointer = nil
   for spec in PAGE_ROWS:
     if spec.column == index:
       let row = buildRow(spec.kind, spec.text, spec.setting)
       if row != nil:
         add(kids, row)
+        if firstRow == nil: firstRow = row
         inc result
+  # The column's own margin is not what the first row is placed against, so the row carries it.
+  if firstRow != nil: setMarginAt(firstRow, THICKNESS_TOP, COLUMN_TOP)
 
 
 ## Builds the tab's content as a clone of VD's own settings page with our rows in place of
