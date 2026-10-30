@@ -115,9 +115,18 @@ const
   MAX_BOUND_ROWS = 24
 
   ## Xenko.Graphics.TextAlignment is Left, Center, Right, so Right is 2. This is the text's
-  ## position *within* the block, which is the one that matters: a note stretches to the
-  ## column's width, so setting the element's own HorizontalAlignment moved nothing.
+  ## position *within* the block, and it is still needed once the block itself is pinned: the
+  ## two lines would otherwise sit left-ragged against each other.
   TEXT_ALIGN_RIGHT = 2'i32
+
+  ## The two element alignments do **not** share an order. HorizontalAlignment is
+  ## Left/Center/Right/Stretch, but VerticalAlignment is **Bottom**/Center/Top/Stretch - so
+  ## Bottom is 0, not the 2 that symmetry with Right would suggest. Both read off the engine.
+  ALIGN_RIGHT = 2'i32
+  ALIGN_BOTTOM = 0'i32
+
+  ## Breathing room from the panel's edges once the credit is pinned to the corner.
+  CREDIT_MARGIN = 16.0'f32
 
   ## The credit, at the end of the right-hand column. Two short lines rather than one long one:
   ## the column is narrow enough that a single line wraps, and an automatic break lands in the
@@ -214,6 +223,7 @@ type
     buttonClass, textClass: MonoClass
     getFont: GetObjFn
     setTextAlignment: SetI32Fn
+    setHorizontalAlignment, setVerticalAlignment: SetI32Fn
     offTextFont: int
     version: string
     checkBoxClass, sliderClass: MonoClass
@@ -557,12 +567,36 @@ proc heartFont(): pointer =
   if full != nil and fontHas(full, HEART): return full
   nil
 
-proc applyCreditStyle(row: pointer, font: pointer) =
+## The credit, as a single element pinned to the bottom-right of the page rather than a row at
+## the end of a column - a column's rows stack from the top, so the last one sits wherever the
+## content happens to end rather than in the corner.
+##
+## The note template *is* a TextBlock, so the clone takes the alignments directly.
+proc buildCredit(): pointer =
   let f = sectionFeature
-  let label = firstTextBlock(row, 0)
-  if label == nil: return
-  if f.setTextAlignment != nil: f.setTextAlignment(label, TEXT_ALIGN_RIGHT)
-  if font != nil and f.offTextFont >= 0: writePtrAt(label, f.offTextFont, font)
+  if f.noteModel == nil: return nil
+  let font = heartFont()
+  let heart = if font != nil: HEART else: HEART_FALLBACK
+  logI("section: credit heart=" & (if font != nil: "glyph" else: "ascii"))
+  result = cloneOf(f.noteModel)
+  if result == nil: return nil
+  if f.setVisibility != nil: f.setVisibility(result, VISIBILITY_VISIBLE)
+
+  let made = "Made with " & heart & CREDIT_BY
+  setLabel(result, if f.version.len == 0: made else:
+                   SECTION_NAME & " " & f.version & "\n" & made)
+
+  if f.setTextAlignment != nil: f.setTextAlignment(result, TEXT_ALIGN_RIGHT)
+  if f.setHorizontalAlignment != nil: f.setHorizontalAlignment(result, ALIGN_RIGHT)
+  if f.setVerticalAlignment != nil: f.setVerticalAlignment(result, ALIGN_BOTTOM)
+  if font != nil and f.offTextFont >= 0: writePtrAt(result, f.offTextFont, font)
+
+  # The note template carries the indent that marks it as a description, which would push the
+  # pinned block away from the corner.
+  setMarginAt(result, THICKNESS_LEFT, 0'f32)
+  setMarginAt(result, THICKNESS_TOP, 0'f32)
+  setMarginAt(result, THICKNESS_RIGHT, CREDIT_MARGIN)
+  setMarginAt(result, THICKNESS_BOTTOM, CREDIT_MARGIN)
 
 proc buildRow(kind: RowKind, text: string, setting: Setting): pointer =
   let f = sectionFeature
@@ -706,20 +740,7 @@ proc fillColumn(col: pointer, index: int): int =
       if row != nil:
         add(kids, row)
         inc result
-  if index == 1:
-    let font = heartFont()
-    let heart = if font != nil: HEART else: HEART_FALLBACK
-    logI("section: credit heart=" & (if font != nil: "glyph" else: "ascii"))
-    # Built as a literal rather than filled in afterwards: Nimony cannot prove an array
-    # assigned element by element has been initialised.
-    let lines = [SECTION_NAME & " " & f.version, "Made with " & heart & CREDIT_BY]
-    for i in 0 .. 1:
-      if i == 0 and f.version.len == 0: continue
-      let credit = buildRow(rkNote, lines[i], stNone)
-      if credit != nil:
-        applyCreditStyle(credit, if i == 1: font else: nil)
-        add(kids, credit)
-        inc result
+
 
 ## Builds the tab's content as a clone of VD's own settings page with our rows in place of
 ## theirs.
@@ -751,6 +772,7 @@ proc buildContent(settings: pointer): pointer =
   if n <= 0 or n > 512: return nil
 
   var filled, columns = 0
+  var lastColumn: pointer = nil
   for i in 0 ..< n:
     let child = childAt(kids, i)
     if child == nil: continue
@@ -759,8 +781,20 @@ proc buildContent(settings: pointer): pointer =
       if f.setVisibility != nil: f.setVisibility(child, VISIBILITY_COLLAPSED)
       continue
     filled += fillColumn(child, columns)
+    lastColumn = child
     inc columns
     if columns >= 2: break
+
+  # Added to the page grid, in the same cell as the right-hand column so the grid certainly has
+  # strip data for it - a child placed in a cell a Grid knows nothing about aborts the game
+  # thread inside Grid.RebuildMeasureCacheData. It overlays that column, which is harmless:
+  # the column's rows stop well short of the bottom, which is the space this occupies.
+  if lastColumn != nil:
+    let credit = buildCredit()
+    let addToPage = resolveAdd(kids)
+    if credit != nil and addToPage != nil:
+      placeInTabCell(credit, lastColumn)
+      addToPage(kids, credit)
 
   logI("section: page has " & $columns & " column(s), " & $filled & " row(s), " &
        $f.pageButtonCount & " button(s)")
@@ -1061,6 +1095,8 @@ method install*(f: SectionFeature): bool =
   f.setText = asProc[SetStrFn](methodAddr(f.textClass, "set_Text", 1))
   f.getFont = asProc[GetObjFn](methodAddr(f.textClass, "get_Font", 0))
   f.setTextAlignment = asProc[SetI32Fn](methodAddr(f.textClass, "set_TextAlignment", 1))
+  f.setHorizontalAlignment = asProc[SetI32Fn](methodAddr(ui, "set_HorizontalAlignment", 1))
+  f.setVerticalAlignment = asProc[SetI32Fn](methodAddr(ui, "set_VerticalAlignment", 1))
   f.offTextFont = fieldOffset(f.textClass, "font")
   if f.setTextAlignment == nil or f.offTextFont < 0:
     logE("section: TextAlignment/font missing; the credit will not be styled")
