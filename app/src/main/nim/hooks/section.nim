@@ -93,7 +93,14 @@ const
   ## almost no spacing and a description ends up touching the row beneath it. This is the gap
   ## each row is guaranteed, raised to rather than added, so a row that already has room keeps
   ## what it was given.
-  ROW_GAP = 8.0'f32
+  ##
+  ## Deliberately looser than what fit leaves VD's own pages with: fit exists to rescue a page
+  ## that does not fit, and this one has half as many rows as the page it is cloned from.
+  ROW_GAP = 16.0'f32
+
+  ## The columns arrive with the 16px top margin fit normalised VD's settings page to, which
+  ## puts our first row hard under the top bar. There is room to spare here, so take it.
+  COLUMN_TOP = 48.0'f32
 
   ## What VD paints an enabled button's caption (UIColors.ButtonTextColor, 160/160/160). A
   ## template cloned from a row VD had disabled carries the dark grey instead, which is what
@@ -728,6 +735,7 @@ proc fillColumn(col: pointer, index: int): int =
   let clear = resolveMethod(kids, "Clear", 0)
   let add = resolveAdd(kids)
   if clear == nil or add == nil: return 0
+  setMarginAt(col, THICKNESS_TOP, COLUMN_TOP)
   asProc[VoidFn](clear)(kids)
   for spec in PAGE_ROWS:
     if spec.column == index:
