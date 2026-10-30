@@ -114,14 +114,18 @@ const
   ## One per bound row; the page has far fewer, and overrunning this only drops bindings.
   MAX_BOUND_ROWS = 24
 
-  ## Xenko.UI.HorizontalAlignment is Left, Center, Right, Stretch - so Right is 2, not the 1 a
-  ## three-value enum would give. Checked against the engine source.
-  ALIGN_RIGHT = 2'i32
+  ## Xenko.Graphics.TextAlignment is Left, Center, Right, so Right is 2. This is the text's
+  ## position *within* the block, which is the one that matters: a note stretches to the
+  ## column's width, so setting the element's own HorizontalAlignment moved nothing.
+  TEXT_ALIGN_RIGHT = 2'i32
 
-  ## The credit, pinned to the end of the right-hand column. The heart is only drawn when the
-  ## note's own font actually carries that glyph: VD ships per-size sprite fonts with limited
-  ## coverage, so an unavailable character renders as a box rather than being substituted here
-  ## (the font swap only happens on set_Font, not set_Text).
+  ## The credit, at the end of the right-hand column. Two short lines rather than one long one:
+  ## the column is narrow enough that a single line wraps, and an automatic break lands in the
+  ## middle of the name.
+  ##
+  ## VD's own fonts are per-size sprite sheets that stop at Latin, so the heart is drawn only
+  ## when some font actually carries the glyph - the full-coverage one the font feature captures
+  ## for translations, if it has it. Otherwise the line degrades to "<3" rather than a box.
   HEART = "\u2665"
   HEART_FALLBACK = "<3"
   CREDIT_BY = " by git-morin"
@@ -209,7 +213,8 @@ type
     offGridMain: int
     buttonClass, textClass: MonoClass
     getFont: GetObjFn
-    setHorizontalAlignment: SetI32Fn
+    setTextAlignment: SetI32Fn
+    offTextFont: int
     version: string
     checkBoxClass, sliderClass: MonoClass
     settingsTabClass: MonoClass
@@ -531,23 +536,33 @@ proc bindRow(row: pointer, kind: RowKind, setting: Setting) =
 proc setVersion*(v: string) =
   sectionFeature.version = v
 
-## True when the note font can draw every character of `text`. Without this the credit's heart
-## would be a box on any build whose fonts stop at Latin.
-proc noteFontCovers(text: string): bool =
-  let f = sectionFeature
-  if f.getFont == nil or f.noteModel == nil: return false
-  let font = f.getFont(f.noteModel)
+## True when `font` can draw every character of `text`. Without this the heart would be a box
+## on any build whose fonts stop at Latin.
+proc fontHas(font: pointer, text: string): bool =
   if font == nil: return false
   var units: seq[uint16] = @[]
   utf8ToUtf16(text, units)
   if units.len == 0: return false
   fontCovers(font, cast[ptr UncheckedArray[uint16]](addr units[0]), units.len)
 
-proc creditText(): string =
+## The font to draw the credit's heart with, or nil to keep the note's own and spell it "<3".
+## Written as a field rather than through set_Font, which the text feature intercepts and
+## discards.
+proc heartFont(): pointer =
   let f = sectionFeature
-  let heart = if noteFontCovers(HEART): HEART else: HEART_FALLBACK
-  result = "Made with " & heart & CREDIT_BY
-  if f.version.len > 0: result = SECTION_NAME & " " & f.version & " - " & result
+  if f.getFont == nil or f.noteModel == nil or f.offTextFont < 0: return nil
+  let own = f.getFont(f.noteModel)
+  if fontHas(own, HEART): return own # nothing to swap, it already has it
+  let full = pickReplacement(fontSize(own))
+  if full != nil and fontHas(full, HEART): return full
+  nil
+
+proc applyCreditStyle(row: pointer, font: pointer) =
+  let f = sectionFeature
+  let label = firstTextBlock(row, 0)
+  if label == nil: return
+  if f.setTextAlignment != nil: f.setTextAlignment(label, TEXT_ALIGN_RIGHT)
+  if font != nil and f.offTextFont >= 0: writePtrAt(label, f.offTextFont, font)
 
 proc buildRow(kind: RowKind, text: string, setting: Setting): pointer =
   let f = sectionFeature
@@ -692,11 +707,19 @@ proc fillColumn(col: pointer, index: int): int =
         add(kids, row)
         inc result
   if index == 1:
-    let credit = buildRow(rkNote, creditText(), stNone)
-    if credit != nil:
-      if f.setHorizontalAlignment != nil: f.setHorizontalAlignment(credit, ALIGN_RIGHT)
-      add(kids, credit)
-      inc result
+    let font = heartFont()
+    let heart = if font != nil: HEART else: HEART_FALLBACK
+    logI("section: credit heart=" & (if font != nil: "glyph" else: "ascii"))
+    var lines: array[2, string]
+    lines[0] = SECTION_NAME & " " & f.version
+    lines[1] = "Made with " & heart & CREDIT_BY
+    for i in 0 .. 1:
+      if i == 0 and f.version.len == 0: continue
+      let credit = buildRow(rkNote, lines[i], stNone)
+      if credit != nil:
+        applyCreditStyle(credit, if i == 1: font else: nil)
+        add(kids, credit)
+        inc result
 
 ## Builds the tab's content as a clone of VD's own settings page with our rows in place of
 ## theirs.
@@ -1037,8 +1060,10 @@ method install*(f: SectionFeature): bool =
   f.getChildren = asProc[GetObjFn](methodAddr(getClass(PANEL), "get_Children", 0))
   f.setText = asProc[SetStrFn](methodAddr(f.textClass, "set_Text", 1))
   f.getFont = asProc[GetObjFn](methodAddr(f.textClass, "get_Font", 0))
-  f.setHorizontalAlignment = asProc[SetI32Fn](
-      methodAddr(ui, "set_HorizontalAlignment", 1))
+  f.setTextAlignment = asProc[SetI32Fn](methodAddr(f.textClass, "set_TextAlignment", 1))
+  f.offTextFont = fieldOffset(f.textClass, "font")
+  if f.setTextAlignment == nil or f.offTextFont < 0:
+    logE("section: TextAlignment/font missing; the credit will not be styled")
   if f.getVisualChildren == nil or f.getChildren == nil or f.setText == nil:
     logE("section: a required member is missing")
     return false
