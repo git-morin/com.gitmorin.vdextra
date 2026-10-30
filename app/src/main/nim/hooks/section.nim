@@ -241,19 +241,17 @@ sectionFeature.enabled.store(true)
 ## The module's options, laid out in VD's own idiom: a header, the control, and a description
 ## indented under it. Every control here drives its setting directly.
 ##
-## Only settings this page can actually change belong on it. The rest - music source, UI
-## language, update channel, which cue sounds to mute - need Android work no hook can do from
-## inside VD, so they stay in the companion app and are named at the bottom rather than shown
-## as buttons that do nothing when pressed.
-const PAGE_ROWS: array[19, PageRow] = [
-  (0, rkHeader, stNone, "VDExtra"),
-  (0, rkToggle, stFit, "Fit long settings pages"),
-  (0, rkNote, stNone, "Tighten row spacing so a translated page stops hiding its last rows"),
-  (0, rkNote, stNone, "Applied while the panel is built, so restart VD to see this change"),
-  (0, rkHeader, stNone, "Sound"),
+## Only settings this page can *change* belong on it. Anything that needs Android work no hook
+## can do from inside VD - music source, UI language, update channel, which cue sounds to mute -
+## stays in the companion app, and so does page fit: that one is applied while the panel is
+## built, so a toggle here could not take effect until the next restart anyway.
+const PAGE_ROWS: array[14, PageRow] = [
   (0, rkSlider, stMusicVolume, "Background music volume"),
   (0, rkToggle, stNoPerfSound, "Disable performance cue sounds"),
   (0, rkNote, stNone, "Mute the cues played when streaming quality changes"),
+  (0, rkHeader, stNone, "Network"),
+  (0, rkToggle, stForceLan, "Force LAN discovery"),
+  (0, rkNote, stNone, "Still show local PCs even when the server is unreachable"),
 
   (1, rkHeader, stNone, "Bitrate"),
   (1, rkToggle, stBitrateExtend, "Extend bitrate range"),
@@ -261,11 +259,8 @@ const PAGE_ROWS: array[19, PageRow] = [
   (1, rkSlider, stBitrateScale, "Bitrate ceiling multiplier"),
   (1, rkToggle, stBitrateUnlock, "Remove auto speed-test bitrate cap"),
   (1, rkNote, stNone, "Skip the bandwidth cap applied after the speed test"),
-  (1, rkHeader, stNone, "Network"),
-  (1, rkToggle, stForceLan, "Force LAN discovery"),
-  (1, rkNote, stNone, "Still show local PCs even when the server is unreachable"),
   (1, rkHeader, stNone, "In the VDExtra app"),
-  (1, rkNote, stNone, "Music source, UI language, update channel and cue sound choice")
+  (1, rkNote, stNone, "Page fit, music source, UI language, update channel and cue sounds")
 ]
 
 ## Collection members live on the instance's own generic type, so they are resolved by walking

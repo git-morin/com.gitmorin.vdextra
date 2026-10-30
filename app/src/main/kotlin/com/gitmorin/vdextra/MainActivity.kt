@@ -57,6 +57,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var homeInfoDict: LinearLayout
     private lateinit var musicSourceValue: TextView
     private lateinit var soundsValue: TextView
+    private lateinit var swFit: MaterialSwitch
     private lateinit var aboutValue: TextView
     private lateinit var pickMusic: ActivityResultLauncher<Array<String>>
 
@@ -79,6 +80,7 @@ class MainActivity : AppCompatActivity() {
         musicSourceValue = findViewById(R.id.music_source_value)
         soundsValue = findViewById(R.id.sounds_value)
         aboutValue = findViewById(R.id.about_value)
+        swFit = findViewById(R.id.sw_settings_fit)
 
         findViewById<BottomNavigationView>(R.id.bottom_nav).setOnItemSelectedListener { item ->
             showPage(if (item.itemId == R.id.nav_options) 1 else 0)
@@ -87,6 +89,9 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<View>(R.id.row_music_source).setOnClickListener { showMusicSourceDialog() }
         findViewById<View>(R.id.row_sounds).setOnClickListener { showSoundDialog() }
+        // Applied while VD builds its panel, so it cannot be a live control on the in-VD page -
+        // which is why it lives here rather than there.
+        swFit.setOnCheckedChangeListener { _, c -> save(PrefKeys.SETTINGS_FIT, c) }
         findViewById<View>(R.id.row_about).setOnClickListener { showAboutDialog() }
         findViewById<View>(R.id.row_language).setOnClickListener { showLanguageDialog() }
         findViewById<View>(R.id.row_channel).setOnClickListener { showChannelDialog() }
@@ -219,6 +224,7 @@ class MainActivity : AppCompatActivity() {
         aboutValue.text = getString(R.string.about_version_format, version(packageName))
 
         soundsValue.text = cueSummary(p.getInt(PrefKeys.QUALITY_MASK, ALL_CUES))
+        swFit.isChecked = p.getBoolean(PrefKeys.SETTINGS_FIT, true)
         binding = false
     }
 

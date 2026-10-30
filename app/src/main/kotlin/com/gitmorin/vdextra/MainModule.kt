@@ -63,9 +63,12 @@ class MainModule : XposedModule() {
                 liveFloat(PrefKeys.BITRATE_SCALE, 2.0f)
             )
             nativeSetForceLan(liveBool(PrefKeys.FORCE_LAN, false))
+            // Read straight from the preferences, never from the in-VD file: the page no
+            // longer owns page fit, so a key left in the file by an older build must not win
+            // over what the app says. Default on.
             nativeSetSettingsFit(
-                liveBool(PrefKeys.SETTINGS_FIT, true),
-                liveFloat(PrefKeys.SETTINGS_FIT_PAD, 16.0f)
+                readBool(PrefKeys.SETTINGS_FIT, true),
+                readFloat(PrefKeys.SETTINGS_FIT_PAD, 16.0f)
             )
             requestUpdateCheck()
             log(

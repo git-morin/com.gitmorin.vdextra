@@ -16,19 +16,17 @@ when defined(nimony):
 import std/[atomics, strutils]
 import nemohooks/log
 import conf
-import hooks/[sound, bitrate, fit, forcelan]
+import hooks/[sound, bitrate, forcelan]
 
 type
   Setting* = enum
-    stNone ## A row with no setting behind it: a header, a description, an unwired button.
-    stFit
+    stNone ## A row with no setting behind it: a header or a description.
     stNoPerfSound
     stBitrateExtend
     stBitrateUnlock
     stForceLan
     stMusicVolume
     stBitrateScale
-    stFitPad
 
 proc bounds*(s: Setting): (float32, float32) =
   ## The range a slider row is given. These match the clamps the JNI setters apply, so a value
@@ -36,32 +34,27 @@ proc bounds*(s: Setting): (float32, float32) =
   case s
   of stMusicVolume: (0'f32, 1'f32)
   of stBitrateScale: (1'f32, 3'f32)
-  of stFitPad: (0'f32, 64'f32)
   else: (0'f32, 1'f32)
 
 proc readValue*(s: Setting): float32 =
   case s
-  of stFit: (if fitFeature.enabled.load(): 1'f32 else: 0'f32)
   of stNoPerfSound: (if cueSoundsFeature.enabled.load(): 1'f32 else: 0'f32)
   of stBitrateExtend: (if bitrateFeature.extend.load(): 1'f32 else: 0'f32)
   of stBitrateUnlock: (if bitrateFeature.unlock.load(): 1'f32 else: 0'f32)
   of stForceLan: (if forceLanFeature.enabled.load(): 1'f32 else: 0'f32)
   of stMusicVolume: musicFeature.volume.load()
   of stBitrateScale: bitrateFeature.scale.load()
-  of stFitPad: fitFeature.pad.load()
   of stNone: 0'f32
 
 proc writeValue*(s: Setting, v: float32) =
   let on = v >= 0.5'f32
   case s
-  of stFit: fitFeature.enabled.store(on)
   of stNoPerfSound: cueSoundsFeature.enabled.store(on)
   of stBitrateExtend: bitrateFeature.extend.store(on)
   of stBitrateUnlock: bitrateFeature.unlock.store(on)
   of stForceLan: forceLanFeature.enabled.store(on)
   of stMusicVolume: musicFeature.volume.store(v)
   of stBitrateScale: bitrateFeature.scale.store(v)
-  of stFitPad: fitFeature.pad.store(v)
   of stNone: discard
 
 proc format*(s: Setting, v: float32): string =
@@ -71,21 +64,18 @@ proc format*(s: Setting, v: float32): string =
   case s
   of stMusicVolume: $int(v * 100'f32 + 0.5'f32) & "%"
   of stBitrateScale: formatFloat(v, ffDecimal, 1) & "x"
-  of stFitPad: $int(v + 0.5'f32)
   else: ""
 
 ## The key each setting is stored under. These are the companion app's PrefKeys names, so one
 ## file can be read straight into the same preferences rather than needing a mapping.
 proc key*(s: Setting): string =
   case s
-  of stFit: "settings_fit"
   of stNoPerfSound: "disable_quality_sound"
   of stBitrateExtend: "bitrate_extend"
   of stBitrateUnlock: "bitrate_unlock"
   of stForceLan: "force_lan"
   of stMusicVolume: "music_volume"
   of stBitrateScale: "bitrate_scale"
-  of stFitPad: "settings_fit_pad"
   of stNone: ""
 
 ## Values go out as thousandths of their real value, so the file holds only integers and the
@@ -98,7 +88,7 @@ const SCALE = 1000'f32
 ## A setting the page cannot change must stay out of this file. The reader prefers the file over
 ## the companion app's preferences, so persisting one the app still owns would pin it to whatever
 ## was saved here and silently ignore every later change made in the app.
-const PERSISTED = [stFit, stNoPerfSound, stBitrateExtend, stBitrateUnlock, stForceLan,
+const PERSISTED = [stNoPerfSound, stBitrateExtend, stBitrateUnlock, stForceLan,
                    stMusicVolume, stBitrateScale]
 
 proc serialise(): string =
@@ -133,6 +123,6 @@ proc flushIfSettled*() =
 proc describe*(s: Setting, v: float32): string =
   ## For the log line a change writes, so a headset session can be read back from logcat.
   case s
-  of stMusicVolume, stBitrateScale, stFitPad: $v
+  of stMusicVolume, stBitrateScale: $v
   of stNone: "-"
   else: (if v >= 0.5'f32: "on" else: "off")
