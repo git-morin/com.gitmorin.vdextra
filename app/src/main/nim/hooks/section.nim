@@ -710,9 +710,9 @@ proc fillColumn(col: pointer, index: int): int =
     let font = heartFont()
     let heart = if font != nil: HEART else: HEART_FALLBACK
     logI("section: credit heart=" & (if font != nil: "glyph" else: "ascii"))
-    var lines: array[2, string]
-    lines[0] = SECTION_NAME & " " & f.version
-    lines[1] = "Made with " & heart & CREDIT_BY
+    # Built as a literal rather than filled in afterwards: Nimony cannot prove an array
+    # assigned element by element has been initialised.
+    let lines = [SECTION_NAME & " " & f.version, "Made with " & heart & CREDIT_BY]
     for i in 0 .. 1:
       if i == 0 and f.version.len == 0: continue
       let credit = buildRow(rkNote, lines[i], stNone)
