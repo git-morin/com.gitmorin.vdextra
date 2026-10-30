@@ -16,21 +16,36 @@ KTLINT_VERSION := 1.8.0
 DETEKT_VERSION := 1.23.8
 TOOLS_DIR := .tools
 NIMONY_VERSION := 0.6.3
-NIMONY_DIR := $(TOOLS_DIR)/nimony-$(NIMONY_VERSION)/nimony
-NIMONY := $(NIMONY_DIR)/bin/nimony.exe
-PNAK := $(NIMONY_DIR)/bin/pnak.exe
-# The nemohooks library this module is built on. nim.cfg points Nim 2 at a sibling checkout;
-# Nimony only honours an absolute --path, which is also what pnak writes into nimony.paths, so
-# the same checkout is passed here spelled out. Override to build against one elsewhere.
+NIMONY_HOME := $(TOOLS_DIR)/nimony-$(NIMONY_VERSION)
+NIMONY_DIR := $(NIMONY_HOME)/nimony
+# Host detection. Only two things here are platform-specific: executables carry a .exe suffix on
+# Windows, and the Nimony toolchain ships one archive per platform (.tar.xz for Linux and macOS,
+# .zip for Windows). Everything else is the same shell on all three.
+HOST_OS := $(shell uname -s)
+HOST_ARCH := $(shell uname -m)
+NIMONY_ARCH := $(if $(filter arm64 aarch64,$(HOST_ARCH)),arm64,amd64)
+ifneq (,$(filter MINGW% MSYS% CYGWIN%,$(HOST_OS)))
+  EXE := .exe
+  NIMONY_ASSET := *windows_amd64.zip
+  NIMONY_EXTRACT = unzip -o $(TOOLS_DIR)/nimony-*.zip -d $(NIMONY_HOME)
+else ifeq ($(HOST_OS),Darwin)
+  EXE :=
+  # Upstream publishes an arm64 build only; an Intel Mac runs it under Rosetta.
+  NIMONY_ASSET := *macos_arm64.tar.xz
+  NIMONY_EXTRACT = mkdir -p $(NIMONY_HOME) && tar -xf $(TOOLS_DIR)/nimony-*.tar.xz -C $(NIMONY_HOME)
+else
+  EXE :=
+  NIMONY_ASSET := *linux_$(NIMONY_ARCH).tar.xz
+  NIMONY_EXTRACT = mkdir -p $(NIMONY_HOME) && tar -xf $(TOOLS_DIR)/nimony-*.tar.xz -C $(NIMONY_HOME)
+endif
+NIMONY := $(NIMONY_DIR)/bin/nimony$(EXE)
+PNAK := $(NIMONY_DIR)/bin/pnak$(EXE)
 NEMO_HOOKS ?= $(abspath ../nemo-hooks)
 NEMO_HOOKS_PATH := $(if $(wildcard $(NEMO_HOOKS)/src),--path:$(NEMO_HOOKS)/src,)
-# --compat makes Nimony read the same nim.cfg Nim 2 uses, so the target is declared once.
 NIMONY_FLAGS := --compat --os:android --cpu:arm64 $(NEMO_HOOKS_PATH)
 KTLINT_JAR := $(TOOLS_DIR)/ktlint-$(KTLINT_VERSION).jar
 DETEKT_JAR := $(TOOLS_DIR)/detekt-cli-$(DETEKT_VERSION)-all.jar
 KT_SRC := app/src/main/kotlin
-# The java on PATH can be an old JRE, so prefer JAVA_HOME: it is what CI sets and what these
-# jars need. The subst keeps a Windows JAVA_HOME usable from bash.
 JAVA_BIN := $(if $(JAVA_HOME),$(subst \,/,$(JAVA_HOME))/bin/java,java)
 
 .PHONY: help help-more lint check fmt fmt-check build apk install run ship \
@@ -62,8 +77,8 @@ require-nimony:
 	@test -x "$(NIMONY)" || { \
 	  echo "Nimony $(NIMONY_VERSION) not found in $(NIMONY_DIR)."; \
 	  echo "Fetch it with:"; \
-	  echo "  gh release download --repo nim-lang/nimony-website --pattern '*windows_amd64.zip' --dir $(TOOLS_DIR)"; \
-	  echo "  unzip -o $(TOOLS_DIR)/nimony-*.zip -d $(TOOLS_DIR)/nimony-$(NIMONY_VERSION)"; \
+	  echo "  gh release download --repo nim-lang/nimony-website --pattern '$(NIMONY_ASSET)' --dir $(TOOLS_DIR)"; \
+	  echo "  $(NIMONY_EXTRACT)"; \
 	  exit 1; }
 
 fmt-check: # Check formatting without rewriting anything
