@@ -36,6 +36,17 @@ If you meet these two situations then please open an issue with your hardware sp
 - **Disable performance cue sounds**: Mute the sounds that are played when you edit **VD**'s performance slider.
 - **Force LAN discovery**: Find local PCs even when the remote server is unreachable (fixes some restrictive networks).
 
+## In Virtual Desktop
+
+Most of the module is configured from a **VDEXTRA** page in Virtual Desktop's own control panel.
+Its rows are clones of VD's own controls, so they match the rest of the interface, and they are
+translated along with everything else. A change takes effect straight away and survives a restart.
+
+![The VDExtra page in Virtual Desktop's control panel](docs/vdextra-section.jpg)
+
+Settings that need Android to do the work stay in the companion app: the music source, the UI
+language, the update channel and which cue sounds to mute.
+
 ## Install
 
 1. Download `vdextra-<version>.apk` from [Releases](../../releases) or the Xposed modules repo and install it.
