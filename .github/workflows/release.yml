@@ -129,13 +129,15 @@ jobs:
           patch=$(echo "$base" | cut -d. -f3)
 
           subjects=$(git log --pretty=%s ${range:+$range})
+          bodies=$(git log --pretty=%B ${range:+$range})
 
-          # Gitmoji drives the bump, since the subjects carry no conventional-commit type.
-          # Anchored at the start of the subject so a commit *describing* a marker cannot trip
-          # it. Shortcodes only, matching the convention the history uses.
-          if echo "$subjects" | grep -q '^:boom:'; then
+          # Conventional Commits drive the bump. A `!` before the colon marks a breaking change,
+          # as does a BREAKING CHANGE footer in the body; `feat` is a minor, anything else a patch.
+          # Anchored at the start of the subject so a commit *describing* a type cannot trip it.
+          if echo "$subjects" | grep -qE '^[a-z]+(\([^)]*\))?!:' \
+             || echo "$bodies" | grep -qE '^BREAKING[ -]CHANGE:'; then
             major=$((major + 1)); minor=0; patch=0; bump=major
-          elif echo "$subjects" | grep -qE '^(:sparkles:|:globe_with_meridians:)'; then
+          elif echo "$subjects" | grep -qE '^feat(\([^)]*\))?:'; then
             minor=$((minor + 1)); patch=0; bump=minor
           else
             patch=$((patch + 1)); bump=patch
