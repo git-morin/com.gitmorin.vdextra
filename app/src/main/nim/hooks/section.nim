@@ -3,7 +3,7 @@ include nemohooks/features
 import std/atomics
 import nemohooks
 import nemohooks/backends/mono
-import ../xenko, ../settings, loadcontent, panelupdate
+import ../xenko, ../settings, ../fontmap, loadcontent, panelupdate
 
 ## Feasibility spike: add a VDExtra entry to the control panel's left navigation.
 ##
@@ -114,6 +114,18 @@ const
   ## One per bound row; the page has far fewer, and overrunning this only drops bindings.
   MAX_BOUND_ROWS = 24
 
+  ## Xenko.UI.HorizontalAlignment is Left, Center, Right, Stretch - so Right is 2, not the 1 a
+  ## three-value enum would give. Checked against the engine source.
+  ALIGN_RIGHT = 2'i32
+
+  ## The credit, pinned to the end of the right-hand column. The heart is only drawn when the
+  ## note's own font actually carries that glyph: VD ships per-size sprite fonts with limited
+  ## coverage, so an unavailable character renders as a box rather than being substituted here
+  ## (the font swap only happens on set_Font, not set_Text).
+  HEART = "\u2665"
+  HEART_FALLBACK = "<3"
+  CREDIT_BY = " by git-morin"
+
 
 type
   GetBoolFn = proc(self: pointer): bool {.cdecl, gcsafe.}
@@ -196,6 +208,9 @@ type
 
     offGridMain: int
     buttonClass, textClass: MonoClass
+    getFont: GetObjFn
+    setHorizontalAlignment: SetI32Fn
+    version: string
     checkBoxClass, sliderClass: MonoClass
     settingsTabClass: MonoClass
     getVisualChildren: GetObjFn
@@ -512,6 +527,28 @@ proc bindRow(row: pointer, kind: RowKind, setting: Setting) =
   f.bound[f.boundCount] = b
   inc f.boundCount
 
+## Pushed down from Kotlin, which is the only side that knows the APK's version.
+proc setVersion*(v: string) =
+  sectionFeature.version = v
+
+## True when the note font can draw every character of `text`. Without this the credit's heart
+## would be a box on any build whose fonts stop at Latin.
+proc noteFontCovers(text: string): bool =
+  let f = sectionFeature
+  if f.getFont == nil or f.noteModel == nil: return false
+  let font = f.getFont(f.noteModel)
+  if font == nil: return false
+  var units: seq[uint16] = @[]
+  utf8ToUtf16(text, units)
+  if units.len == 0: return false
+  fontCovers(font, cast[ptr UncheckedArray[uint16]](addr units[0]), units.len)
+
+proc creditText(): string =
+  let f = sectionFeature
+  let heart = if noteFontCovers(HEART): HEART else: HEART_FALLBACK
+  result = "Made with " & heart & CREDIT_BY
+  if f.version.len > 0: result = SECTION_NAME & " " & f.version & " - " & result
+
 proc buildRow(kind: RowKind, text: string, setting: Setting): pointer =
   let f = sectionFeature
   let model = case kind
@@ -654,6 +691,12 @@ proc fillColumn(col: pointer, index: int): int =
       if row != nil:
         add(kids, row)
         inc result
+  if index == 1:
+    let credit = buildRow(rkNote, creditText(), stNone)
+    if credit != nil:
+      if f.setHorizontalAlignment != nil: f.setHorizontalAlignment(credit, ALIGN_RIGHT)
+      add(kids, credit)
+      inc result
 
 ## Builds the tab's content as a clone of VD's own settings page with our rows in place of
 ## theirs.
@@ -993,6 +1036,9 @@ method install*(f: SectionFeature): bool =
   f.getVisualChildren = asProc[GetObjFn](methodAddr(ui, "get_VisualChildren", 0))
   f.getChildren = asProc[GetObjFn](methodAddr(getClass(PANEL), "get_Children", 0))
   f.setText = asProc[SetStrFn](methodAddr(f.textClass, "set_Text", 1))
+  f.getFont = asProc[GetObjFn](methodAddr(f.textClass, "get_Font", 0))
+  f.setHorizontalAlignment = asProc[SetI32Fn](
+      methodAddr(ui, "set_HorizontalAlignment", 1))
   if f.getVisualChildren == nil or f.getChildren == nil or f.setText == nil:
     logE("section: a required member is missing")
     return false

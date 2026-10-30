@@ -86,5 +86,11 @@ proc Java_com_gitmorin_vdextra_MainModule_nativeSetSettingsFit(
 proc vdDictPut(k, v: cstring) {.exportc: "vdDictPut", cdecl, dynlib.} =
   dictPut($k, $v)
 
+## Reached through init.c rather than as a JNI entry point of its own, because converting the
+## jstring needs the env; the dictionary arrives the same way.
+proc vdSetVersion(v: cstring) {.exportc: "vdSetVersion", cdecl, dynlib.} =
+  setVersion($v)
+  logI("version=" & $v)
+
 proc vdDictLogCount() {.exportc: "vdDictLogCount", cdecl, dynlib.} =
   logI("dict=" & $dictLen())

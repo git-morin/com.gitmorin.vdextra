@@ -42,6 +42,7 @@ class MainModule : XposedModule() {
             val dict = loadBuiltinDict(moduleApk, lang)
 
             nativeSetDict(dict.keys.toTypedArray(), dict.values.toTypedArray())
+            nativeSetVersion(BuildConfig.VERSION_NAME)
             nativeInit()
             val musicVolume = liveFloat(PrefKeys.MUSIC_VOLUME, 1.0f)
             // Hearing music is how a user knows the module took effect without having changed
@@ -200,6 +201,8 @@ class MainModule : XposedModule() {
     external fun nativeCheckMono(): Boolean
 
     external fun nativeSetDict(keys: Array<String>, vals: Array<String>)
+
+    external fun nativeSetVersion(version: String)
 
     external fun nativeSetMusicVolume(volume: Float)
 
